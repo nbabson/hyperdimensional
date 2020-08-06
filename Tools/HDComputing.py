@@ -14,6 +14,7 @@ random.seed()
 # TODO: Add function argument for method override => class inheritance
 # TODO: Record-based encoding: lower orthogonality on closer level vectors
 # TODO: n-gram
+# TODO: Overload iterator for Vector
 
 
 def add_method(cls):
@@ -30,8 +31,11 @@ def add_method(cls):
 
 
 class Vector:
-	def __init__(self, dim: int, value: np.ndarray):
-		self.dim = dim
+	def __init__(self, dim: Union[Tuple[int, int], int], value: np.ndarray):
+		if dim is tuple:
+			self.dim = dim[1]
+		else:
+			self.dim = dim
 		self.value = value
 
 	def __add__(self, other: Vector) -> Vector:
@@ -240,7 +244,18 @@ def record_encode(dim: int, rep: Type[Vector], enc: RecordEncodingDict, features
 		# id_vectors = np.random.randint(2, size=(enc['N'], dim))
 		# level_vectors = np.random.randint(2, size=(enc['M'], dim))
 		id_vectors = rep(dim=(enc['N'], dim))
-		level_vectors = rep(dim=(enc['M'], dim))
+
+		num_flip = int(dim / (enc['M'] - 1))
+		l_vectors = np.zeros(shape=(enc['M'], dim), dtype=np.int)
+		l_vectors[0] = np.random.randint(2, size=dim, dtype=int)
+
+		# TODO: Fix flipping for reps other than {0,1} values
+		for index in range(1, enc['M']):
+			l_vectors[index] = l_vectors[index - 1]
+			flip_indices = np.random.randint(0, dim, size=num_flip)
+			l_vectors[index][flip_indices] = 1 - l_vectors[index - 1][flip_indices]
+
+		level_vectors = rep(dim=(enc['M'], dim), value=l_vectors)
 
 	bins = np.linspace(enc['range'][0], enc['range'][1], enc['M'] + 1)
 	level_dict = {(x, y): l for x, y, l in zip(bins, bins[1:], level_vectors)}
@@ -263,13 +278,13 @@ def record_encode(dim: int, rep: Type[Vector], enc: RecordEncodingDict, features
 
 
 class Hyperspace:
-	def __init__(self, dim: int = 1000, rep: Type[Vector] = BSCVector, enc: str = None) -> None:
+	def __init__(self, dim: int = 1000, rep: Type[Vector] = BSCVector, enc: dict = None) -> None:
 		self.dim = dim
 		self.rep = rep
 		self.enc = enc
 		self.vectors = {}
 
-		if self.enc is not None and self.enc == 'record':
+		if self.enc is not None and 'record' in self.enc:
 			self.id_vectors = None
 			self.level_vectors = None
 
@@ -283,13 +298,13 @@ class Hyperspace:
 		return self.vectors[name]
 
 	def add(self, name: str = None, features: np.ndarray = None) -> Vector:
-		if self.enc is not None and self.enc == 'record':
+		if self.enc is not None and 'record' in self.enc:
 			if features is None:
 				raise ValueError('Record-based encoded vectors must supply features to be added')
 			elif self.id_vectors is None:
-				self.id_vectors, self.level_vectors, _ = record_encode(self.dim, self.rep, self.enc)
+				self.id_vectors, self.level_vectors, _ = record_encode(self.dim, self.rep, self.enc['record'], features)
 			else:
-				_, _, _ = record_encode(self.dim, self.rep, self.enc)
+				_, _, _ = record_encode(self.dim, self.rep, self.enc['record'], features)
 
 		if name is None:
 			name = self.__random_name()
