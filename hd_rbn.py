@@ -34,6 +34,10 @@ class RBN:
             self.State[i+1] = self.Functions[:, np.sum(self.Pow * self.State[i, self.Connections], 1)].diagonal()
         return self.State    
 
+class RBN2: # RBN with average in-degree K
+    pass
+
+
 # Round real valued input data to number of network states
 def smooth_data(data, states):
     result = [ [] for _ in range(26) ]
@@ -158,7 +162,7 @@ def plot_letters(letters):
         y = transformed[1][letter_dict[letter]]
         plt.scatter(x, y, marker='x', color='red')
         plt.text(x+.03, y+.03, letter, fontsize=10)
-    plt.show()    
+    plt.show(block=False)    
 
 def main():
     plot = args.plot
@@ -193,6 +197,7 @@ def main():
         plot_letters(letters)
 
         # Plot confusion matrix of results
+        plt.figure(2)
         act = np.zeros(1560, dtype=int)
         for i in range(1, 26):
             offset = i * 60  
@@ -207,7 +212,8 @@ def main():
                             rownames=['Actual'], colnames=['Predicted'])) #, margins=True))
         sn.heatmap(confusion_matrix, annot=True, yticklabels=letter_list,
                 xticklabels=letter_list)
-        plt.show()
+        plt.show(block=False)
+        input('Press <ENTER> to continue.')
 
 if __name__ == '__main__':
     main()
