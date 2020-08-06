@@ -1,17 +1,19 @@
 from __future__ import annotations
 
 import random
-
 import numpy as np
 from scipy.spatial.distance import hamming
+from sklearn.metrics.pairwise import cosine_similarity
 from functools import wraps
+from typing import Type, Tuple, Union
+from mypy_extensions import TypedDict
 
 random.seed()
 
-
-# TODO: Add cosine similarity
-# TODO: Add function argument for method override
-# TODO: Record-based encoding
+# TODO: Add cosine similarity, permutation
+# TODO: Add function argument for method override => class inheritance
+# TODO: Record-based encoding: lower orthogonality on closer level vectors
+# TODO: n-gram
 
 
 def add_method(cls):
@@ -27,198 +29,251 @@ def add_method(cls):
 	return decorator
 
 
-# noinspection PyMethodParameters
-class Hypervector:
+class Vector:
+	def __init__(self, dim: int, value: np.ndarray):
+		self.dim = dim
+		self.value = value
 
-	# define: INIT, ADD, MUL, and DIST operations depending on representation
+	def __add__(self, other: Vector) -> Vector:
+		raise NotImplementedError("Bundling operation '+' must be implemented")
 
-	# representation template
-	def __init_xxx(dim, enc):
+	def __mul__(self, other: Vector) -> Vector:
+		raise NotImplementedError("Binding operation '*' must be implemented")
+
+	def __getitem__(self, item) -> Vector:
+		return type(self)(self.dim, self.value[item])
+
+
+class BSCVector(Vector):
+	def __init__(self, dim: Union[Tuple[int, int], int], value: np.ndarray = None):
 		"""
-		Create a new (random) hyperdimensional vector and return it
+		:param dim: dimension value or tuple of (number of vectors, dimension)
+		:param value: value(s) to be assigned as BSCVector
 		"""
-		return None
+		if value is None:
+			value = np.random.randint(2, size=dim)
+		super().__init__(dim, value)
 
-	def __add_xxx(x, y):
-		"""
-		Create a new hyperdimensional vector, z, that is the result of the addition (bundling) of two hyperdimensional vectors x and y
-		"""
-		# TODO: Figure out majority rule addition
-		return None
-
-	def __mul_xxx(x, y):
-		"""
-		Create a new hyperdimensional vector, z, that is the result of the multoplication (binding) of two hyperdimensional vectors x and y
-		"""
-		return None
-
-	def __dist_xxx(x, y):
-		"""
-		Return the distance between the two hyperdimensional vectors x and y
-		"""
-		return None
-
-	# Binary Spatter Code
-	def init_bsc(self) -> np.ndarray:
-		if self.enc is None:
-			return np.random.randint(2, size=self.dim)
-		elif self.enc['type'] == 'record':
-			H = np.zeros(self.dim)
-			id_vectors = np.random.randint(2, size=(self.enc['N'], self.dim))
-			level_vectors = np.random.randint(2, size=(self.enc['M'], self.dim))
-			bins = np.linspace(self.enc['range'][0], self.enc['range'][1], self.enc['M']+1)
-			level_dict = {(x, y): l for x, y, l in zip(bins, bins[1:], level_vectors)}
-
-			encoded = np.empty((self.enc['N'], self.dim))
-			for num, feature in enumerate(self.features):
-				# encoded[num] = [self.mul_bsc(level_dict[(low, high)], id_vectors[num]) for (low, high) in level_dict if (feature >= low) and (feature <= high)][0]
-				for (low, high) in level_dict:
-					if (feature >= low) and (feature <= high):
-						encoded[num] = self.mul_bsc(level_dict[(low, high)], id_vectors[num])
-						break
-
-			for vector in encoded:
-				H = self.add_bsc(H, vector)
-
-			return H
-
-	def add_bsc(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-		z = x + y
+	def __add__(self, x: BSCVector) -> BSCVector:
+		z = self.value + x.value
 		z[z == 1] = np.random.randint(2, size=len(z[z == 1]))
 		z[z == 2] = np.ones(len(z[z == 2]))
-		return z
+		return BSCVector(self.dim, z)
 
-	def mul_bsc(self, x: np.ndarray, y: np.ndarray) -> np.ndarray:
-		z = np.bitwise_xor(x, y)
-		return z
+	def __mul__(self, y: BSCVector) -> BSCVector:
+		z = np.bitwise_xor(self.value, y.value)
+		return BSCVector(self.dim, z)
 
-	def dist_bsc(self, x: np.ndarray, y: np.ndarray) -> float:
-		return hamming(x, y)
+	# def __getitem__(self, item):
+	# 	return BSCVector(self.dim, self.value[item])
 
-	# Bipolar
-	def __init_bipolar(dim: int, enc: dict, features: list = None) -> np.ndarray:
-		return np.random.choice([-1.0, 1.0], size=dim)
+	def __invert__(self):
+		# TODO: permute
+		pass
 
-	def __add_bipolar(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-		z = np.clip(x + y, a_min=-1.0, a_max=1.0)
+	def __or__(self, y: BSCVector) -> float:
+		# TODO: distance
+		return hamming(self.value, y.value)
+
+	def __eq__(self, y: BSCVector) -> bool:
+		return np.array_equal(self.value, y.value)
+
+	def __ne__(self, y: BSCVector) -> bool:
+		return not np.array_equal(self.value, y.value)
+
+	def __repr__(self) -> str:
+		return np.array2string(self.value)
+
+	def dist(x: BSCVector, y: BSCVector) -> float:
+		return hamming(x.value, y.value)
+
+	def similar(x: BSCVector, y: BSCVector) -> float:
+		return cosine_similarity(x.value, y.value)
+
+
+class BipolarVector(Vector):
+	def __init__(self, dim: Union[Tuple[int, int], int], value: np.ndarray = None):
+		"""
+		:param dim: dimension value or tuple of (number of vectors, dimension)
+		:param value: value(s) to be assigned as BipolarVector
+		"""
+		if value is None:
+			value = np.random.choice([-1.0, 1.0], size=dim)
+		super().__init__(dim, value)
+
+	def __add__(self, y: BipolarVector) -> BipolarVector:
+		z = np.clip(self.value + y.value, a_min=-1.0, a_max=1.0)
 		z[z == 0] = np.random.choice([-1.0, 1.0], size=len(z[z == 0]))
-		return z
+		return BipolarVector(self.dim, z)
 
-	def __mul_bipolar(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-		return x * y
+	def __mul__(self, y: BipolarVector) -> BipolarVector:
+		return BipolarVector(self.dim, self.value * y.value)
 
-	def __dist_bipolar(x: np.ndarray, y: np.ndarray) -> float:
+	# def __getitem__(self, item):
+	# 	return BipolarVector(self.dim, self.value[item])
+
+	def __invert__(self):
+		# TODO: permute
+		pass
+
+	def __or__(self, y: BipolarVector) -> float:
+		# TODO: distance
+		return (len(self.value) - np.dot(self.value, y.value)) / (2 * float(len(self.value)))
+
+	def __eq__(self, y: BipolarVector) -> bool:
+		return np.array_equal(self.value, y.value)
+
+	def __ne__(self, y: BipolarVector) -> bool:
+		return not np.array_equal(self.value, y.value)
+
+	def __repr__(self) -> str:
+		return np.array2string(self.value)
+
+	def dist(x: BipolarVector, y: BipolarVector) -> float:
 		# TODO: Check replacing by np.round(1 - (np.count_nonzero(a + b) / float(len(a))), int(np.log10(dim))), is slower
-		return (len(x) - np.dot(x, y)) / (2 * float(len(x)))
+		return (len(x.value) - np.dot(x.value, y.value)) / (2 * float(len(x.value)))
 
-	# Binary Sparse
-	def __init_bsd(dim: int, enc: dict, features: list = None) -> np.ndarray:
+	def similar(x: BipolarVector, y: BipolarVector) -> float:
+		# TODO: Bipolar similarity
+		pass
+
+
+class BSDVector(Vector):
+	def __init__(self, dim: Union[Tuple[int, int], int], value: np.ndarray = None):
+		"""
+		:param dim: dimension value or tuple of (number of vectors, dimension)
+		:param value: value(s) to be assigned as BSDVector
+		"""
 		# TODO make probability as a param
-		# sparsity << 0.5
-		sparsity = 0.2
-		return np.random.choice([0, 1], size=dim, p=[1 - sparsity, sparsity])
+		if value is None:
+			# sparsity << 0.5
+			sparsity = 0.2
+			value = np.random.choice([0, 1], size=dim, p=[1 - sparsity, sparsity])
+		super().__init__(dim, value)
 
-	def __add_bsd(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-		# bundling in BSD is nothing but a fancy binding, role-filler scheme - use same code
-		# TODO refactor to explicitly reuse the same function
-
-		z0 = np.bitwise_or(x, y)
-		# permutation factor
-		k = 8
-
-		zk = np.zeros((k, x.shape[0]), dtype=int)
-		for i in range(0, k):
-			zk[i] = np.random.permutation(z0)
-		z = np.bitwise_or.reduce(zk)
-
-		return np.bitwise_and(z, z0)
-
-	def __mul_bsd(x: np.ndarray, y: np.ndarray) -> np.ndarray:
-		z0 = np.bitwise_or(x, y)
+	def __add__(self, y: BSDVector) -> BSDVector:
+		z0 = np.bitwise_or(self.value, y.value)
 		# permutation factor
 		k = 8
 		# zk = np.fromfunction(lambda i, j: np.random.permutation(z0), (k, 1), dtype=int)
 		# z = np.bitwise_or.reduce(zk)
 
-		zk = np.zeros((k, x.shape[0]), dtype=int)
+		zk = np.zeros((k, self.value.shape[0]), dtype=int)
 		for i in range(0, k):
 			zk[i] = np.random.permutation(z0)
 		z = np.bitwise_or.reduce(zk)
 
-		return np.bitwise_and(z, z0)
+		return BSDVector(self.dim, np.bitwise_and(z, z0))
 
-	def __dist_bsd(x: np.ndarray, y: np.ndarray) -> float:
-		d = 1 - np.sum(np.bitwise_and(x, y)) / np.sqrt(np.sum(x) * np.sum(y))
+	def __mul__(self, y: BSDVector) -> BSDVector:
+		z0 = np.bitwise_or(self.value, y.value)
+		# permutation factor
+		k = 8
+		# zk = np.fromfunction(lambda i, j: np.random.permutation(z0), (k, 1), dtype=int)
+		# z = np.bitwise_or.reduce(zk)
+
+		zk = np.zeros((k, self.value.shape[0]), dtype=int)
+		for i in range(0, k):
+			zk[i] = np.random.permutation(z0)
+		z = np.bitwise_or.reduce(zk)
+
+		return BSDVector(self.dim, np.bitwise_and(z, z0))
+
+	# def __getitem__(self, item):
+	# 	return BSDVector(self.dim, self.value[item])
+
+	def __invert__(self):
+		# TODO: permute
+		pass
+
+	def __or__(self, y: BSDVector) -> float:
+		# TODO: distance
+		d = 1 - np.sum(np.bitwise_and(self.value, y.value)) / np.sqrt(np.sum(self.value) * np.sum(y.value))
 		return d
 
-	# operations list
-	__OPERATIONS = {
-		'bsc': {
-			'init': init_bsc,
-			'add': add_bsc,
-			'mul': mul_bsc,
-			'dist': dist_bsc
-		},
-		'bsd': {
-			'init': __init_bsd,
-			'add': __add_bsd,
-			'mul': __mul_bsd,
-			'dist': __dist_bsd
-		},
-		'bipolar': {
-			'init': __init_bipolar,
-			'add': __add_bipolar,
-			'mul': __mul_bipolar,
-			'dist': __dist_bipolar
-		},
-	}
+	def __eq__(self, y: BSDVector) -> bool:
+		return np.array_equal(self.value, y.value)
 
-	# Initialize random HD vector
-	def __init__(self, dim: int, rep: str, enc: dict, features: list = None) -> None:
-		self.rep = rep
-		self.dim = dim
-		self.enc = enc
-		self.features = features
-		self.value = self.__OPERATIONS['bsc']['init'](self)
+	def __ne__(self, y: BSDVector) -> bool:
+		return not np.array_equal(self.value, y.value)
 
-	# Print vector
-	def __repr__(self):
+	def __repr__(self) -> str:
 		return np.array2string(self.value)
 
-	# Print vector
-	def __str__(self):
-		return np.array2string(self.value)
+	def dist(x: BSDVector, y: BSDVector) -> float:
+		d = 1 - np.sum(np.bitwise_and(x.value, y.value)) / np.sqrt(np.sum(x.value) * np.sum(y.value))
+		return d
 
-	# Addition
-	def __add__(self, a: Hypervector) -> Hypervector:
-		b = Hypervector(self.dim, self.rep, self.enc)
-		b.value = self.__OPERATIONS[self.rep]['add'](self.value, a.value)
-		return b
-
-	# Multiplication
-	def __mul__(self, a: Hypervector) -> Hypervector:
-		b = Hypervector(self.dim, self.rep, self.enc)
-		b.value = self.__OPERATIONS[self.rep]['mul'](self.value, a.value)
-		return b
-
-	# Distance
-	def dist(self, a: Hypervector) -> float:
-		return self.__OPERATIONS[self.rep]['dist'](self.value, a.value)
-
-	@classmethod
-	def add_repr(cls, repr):
-		cls.__OPERATIONS['abc'] = repr
+	def similar(x: BSDVector, y: BSDVector) -> float:
+		# TODO: Bipolar similarity
+		pass
 
 
-class Space:
+class RecordEncodingDict(TypedDict):
+	"""
+	N: number of features to be encoded
 
-	def __init__(self, dim: int = 1000, rep: str = 'bsc', enc: dict = None) -> None:
+	M: number of levels
+
+	range: tuple of [low, high] range for levels
+	"""
+	N: int
+	M: int
+	range: Tuple[int, int]
+
+
+def record_encode(dim: int, rep: Type[Vector], enc: RecordEncodingDict, features: np.ndarray, id_vectors: Type[Vector] = None, level_vectors: Type[Vector] = None) -> Tuple[Type[Vector], Type[Vector], Type[Vector]]:
+	"""
+	:param dim: dimensions of hypervector
+	:param rep: representation as an inherited Vector object
+	:param enc: RecordEncodingDict wth encoding parameters
+	:param features: 1D ndarray of features to be encoded
+	:param id_vectors: ID vectors to be used
+	:param level_vectors: Level vectors to be used
+	:return: id_vectors, level_vectors, encoded hypervector
+	"""
+
+	# Create empty vector of given representation
+	S = rep(dim=dim, value=np.zeros(dim))
+
+	if id_vectors is None:
+		# id_vectors = np.random.randint(2, size=(enc['N'], dim))
+		# level_vectors = np.random.randint(2, size=(enc['M'], dim))
+		id_vectors = rep(dim=(enc['N'], dim))
+		level_vectors = rep(dim=(enc['M'], dim))
+
+	bins = np.linspace(enc['range'][0], enc['range'][1], enc['M'] + 1)
+	level_dict = {(x, y): l for x, y, l in zip(bins, bins[1:], level_vectors)}
+
+	encoded = np.empty((enc['N'], dim))
+	for num, feature in enumerate(features):
+		# encoded[num] = [self.mul_bsc(level_dict[(low, high)], id_vectors[num]) for (low, high) in level_dict if (feature >= low) and (feature <= high)][0]
+		for (low, high) in level_dict:
+			if (feature >= low) and (feature <= high):
+				v1 = level_dict[(low, high)]
+				v2 = id_vectors[num]
+				val = v1 * v2
+				encoded[num] = val.value
+				break
+
+	for vector in encoded:
+		S = S + rep(dim=dim, value=vector)
+
+	return id_vectors, level_vectors, S
+
+
+class Hyperspace:
+	def __init__(self, dim: int = 1000, rep: Type[Vector] = BSCVector, enc: str = None) -> None:
 		self.dim = dim
 		self.rep = rep
 		self.enc = enc
 		self.vectors = {}
 
-	def _random_name(self):
+		if self.enc is not None and self.enc == 'record':
+			self.id_vectors = None
+			self.level_vectors = None
+
+	def __random_name(self):
 		return ''.join(random.choice('0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ') for i in range(8))
 
 	def __repr__(self):
@@ -227,28 +282,32 @@ class Space:
 	def __getitem__(self, name: str):
 		return self.vectors[name]
 
-	def add(self, name: str = None, features: list = None) -> Hypervector:
-		if self.enc is not None and self.enc['type'] == 'record':
+	def add(self, name: str = None, features: np.ndarray = None) -> Vector:
+		if self.enc is not None and self.enc == 'record':
 			if features is None:
 				raise ValueError('Record-based encoded vectors must supply features to be added')
+			elif self.id_vectors is None:
+				self.id_vectors, self.level_vectors, _ = record_encode(self.dim, self.rep, self.enc)
+			else:
+				_, _, _ = record_encode(self.dim, self.rep, self.enc)
 
 		if name is None:
-			name = self._random_name()
+			name = self.__random_name()
 
-		v = Hypervector(self.dim, self.rep, self.enc, features)
+		v = self.rep(dim=self.dim)
 
 		self.vectors[name] = v
 		return v
 
-	def insert(self, v: Hypervector, name: str = None) -> str:
+	def insert(self, v: Vector, name: str = None) -> str:
 		if name is None:
-			name = self._random_name()
+			name = self.__random_name()
 
 		self.vectors[name] = v
 
 		return name
 
-	def find(self, x: Hypervector) -> (Hypervector, float):
+	def find(self, x: Type[Vector]) -> (Type[Vector], float):
 		d = 1.0
 		match = None
 
