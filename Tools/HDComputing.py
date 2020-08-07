@@ -2,20 +2,21 @@ from __future__ import annotations
 
 import random
 import numpy as np
-from scipy.spatial.distance import hamming
-from sklearn.metrics.pairwise import cosine_similarity
+from scipy.spatial.distance import hamming, cosine
 from functools import wraps
 from typing import Type, Tuple, Union
 from mypy_extensions import TypedDict
 
 random.seed()
 
-# TODO: Add cosine similarity, permutation
-# TODO: Add function argument for method override => class inheritance
-# TODO: Record-based encoding: lower orthogonality on closer level vectors
+# TODO: Add MIT license
+# TODO: Cosine similarity operator
+# TODO: Majority-rule additions
 # TODO: n-gram
 # TODO: Overload iterator for Vector
+# TODO: Check permutation_indices being shared among different sub-classes
 
+# VERIFY: Verify permutation
 
 def add_method(cls):
 	def decorator(func):
@@ -24,36 +25,75 @@ def add_method(cls):
 			return func(*args, **kwargs)
 
 		setattr(cls, func.__name__, wrapper)
-		# Note we are not binding func, but wrapper which accepts self but does exactly the same as func
-		return func  # returning func means func can still be used normally
+		return func
 
 	return decorator
 
 
 class Vector:
+	# Static dictionary to maintain common permutation indices across objects
+	permutation_indices = {}
+
 	def __init__(self, dim: Union[Tuple[int, int], int], value: np.ndarray):
+		"""
+		:param dim: dimension or tuple of (number of vectors, dimension)
+		:param value: value(s) to be assigned as BSCVector, randomly initialized if empty
+		"""
 		if dim is tuple:
 			self.dim = dim[1]
 		else:
 			self.dim = dim
 		self.value = value
 
+		# Add permutation indices to static dictionary for first occurrence of dimension
+		if self.dim not in type(self).permutation_indices:
+			type(self).permutation_indices[self.dim] = np.random.permutation(self.dim)
+
 	def __add__(self, other: Vector) -> Vector:
+		"""
+		Bundling operator
+		"""
 		raise NotImplementedError("Bundling operation '+' must be implemented")
 
 	def __mul__(self, other: Vector) -> Vector:
+		"""
+		Binding operator
+		"""
 		raise NotImplementedError("Binding operation '*' must be implemented")
 
+	def __invert__(self):
+		"""
+		Permutation operator
+		"""
+		return type(self)(dim=self.dim, value=self.value[type(self).permutation_indices[self.dim]])
+
+	def __or__(self, other: Vector) -> Vector:
+		"""
+		Distance operator
+		"""
+		pass
+
+	def __eq__(self, other: Vector) -> bool:
+		"""
+		Returns np.array_equal on hypervector values
+		"""
+		return np.array_equal(self.value, other.value)
+
+	def __ne__(self, other: Vector) -> bool:
+		"""
+		Returns not np.array_equal on hypervector values
+		"""
+		return not np.array_equal(self.value, other.value)
+
 	def __getitem__(self, item) -> Vector:
+		"""
+		Indexing operator for hypervectors
+		"""
 		return type(self)(self.dim, self.value[item])
 
 
 class BSCVector(Vector):
 	def __init__(self, dim: Union[Tuple[int, int], int], value: np.ndarray = None):
-		"""
-		:param dim: dimension value or tuple of (number of vectors, dimension)
-		:param value: value(s) to be assigned as BSCVector
-		"""
 		if value is None:
 			value = np.random.randint(2, size=dim)
 		super().__init__(dim, value)
@@ -68,22 +108,8 @@ class BSCVector(Vector):
 		z = np.bitwise_xor(self.value, y.value)
 		return BSCVector(self.dim, z)
 
-	# def __getitem__(self, item):
-	# 	return BSCVector(self.dim, self.value[item])
-
-	def __invert__(self):
-		# TODO: permute
-		pass
-
 	def __or__(self, y: BSCVector) -> float:
-		# TODO: distance
 		return hamming(self.value, y.value)
-
-	def __eq__(self, y: BSCVector) -> bool:
-		return np.array_equal(self.value, y.value)
-
-	def __ne__(self, y: BSCVector) -> bool:
-		return not np.array_equal(self.value, y.value)
 
 	def __repr__(self) -> str:
 		return np.array2string(self.value)
@@ -92,15 +118,11 @@ class BSCVector(Vector):
 		return hamming(x.value, y.value)
 
 	def similar(x: BSCVector, y: BSCVector) -> float:
-		return cosine_similarity(x.value, y.value)
+		return cosine(x.value, y.value)
 
 
 class BipolarVector(Vector):
 	def __init__(self, dim: Union[Tuple[int, int], int], value: np.ndarray = None):
-		"""
-		:param dim: dimension value or tuple of (number of vectors, dimension)
-		:param value: value(s) to be assigned as BipolarVector
-		"""
 		if value is None:
 			value = np.random.choice([-1.0, 1.0], size=dim)
 		super().__init__(dim, value)
@@ -113,28 +135,14 @@ class BipolarVector(Vector):
 	def __mul__(self, y: BipolarVector) -> BipolarVector:
 		return BipolarVector(self.dim, self.value * y.value)
 
-	# def __getitem__(self, item):
-	# 	return BipolarVector(self.dim, self.value[item])
-
-	def __invert__(self):
-		# TODO: permute
-		pass
-
 	def __or__(self, y: BipolarVector) -> float:
-		# TODO: distance
 		return (len(self.value) - np.dot(self.value, y.value)) / (2 * float(len(self.value)))
-
-	def __eq__(self, y: BipolarVector) -> bool:
-		return np.array_equal(self.value, y.value)
-
-	def __ne__(self, y: BipolarVector) -> bool:
-		return not np.array_equal(self.value, y.value)
 
 	def __repr__(self) -> str:
 		return np.array2string(self.value)
 
 	def dist(x: BipolarVector, y: BipolarVector) -> float:
-		# TODO: Check replacing by np.round(1 - (np.count_nonzero(a + b) / float(len(a))), int(np.log10(dim))), is slower
+		# VERIFY: Replacing by np.round(1 - (np.count_nonzero(a + b) / float(len(a))), int(np.log10(dim))), is slower
 		return (len(x.value) - np.dot(x.value, y.value)) / (2 * float(len(x.value)))
 
 	def similar(x: BipolarVector, y: BipolarVector) -> float:
@@ -144,10 +152,6 @@ class BipolarVector(Vector):
 
 class BSDVector(Vector):
 	def __init__(self, dim: Union[Tuple[int, int], int], value: np.ndarray = None):
-		"""
-		:param dim: dimension value or tuple of (number of vectors, dimension)
-		:param value: value(s) to be assigned as BSDVector
-		"""
 		# TODO make probability as a param
 		if value is None:
 			# sparsity << 0.5
@@ -183,23 +187,9 @@ class BSDVector(Vector):
 
 		return BSDVector(self.dim, np.bitwise_and(z, z0))
 
-	# def __getitem__(self, item):
-	# 	return BSDVector(self.dim, self.value[item])
-
-	def __invert__(self):
-		# TODO: permute
-		pass
-
 	def __or__(self, y: BSDVector) -> float:
-		# TODO: distance
 		d = 1 - np.sum(np.bitwise_and(self.value, y.value)) / np.sqrt(np.sum(self.value) * np.sum(y.value))
 		return d
-
-	def __eq__(self, y: BSDVector) -> bool:
-		return np.array_equal(self.value, y.value)
-
-	def __ne__(self, y: BSDVector) -> bool:
-		return not np.array_equal(self.value, y.value)
 
 	def __repr__(self) -> str:
 		return np.array2string(self.value)
@@ -236,7 +226,7 @@ def record_encode(dim: int, rep: Type[Vector], enc: RecordEncodingDict, features
 	:param level_vectors: Level vectors to be used
 	:return: id_vectors, level_vectors, encoded hypervector
 	"""
-
+	# VERIFY: Infer N from dimensions of features
 	# Create empty vector of given representation
 	S = rep(dim=dim, value=np.zeros(dim))
 
@@ -279,11 +269,18 @@ def record_encode(dim: int, rep: Type[Vector], enc: RecordEncodingDict, features
 
 class Hyperspace:
 	def __init__(self, dim: int = 1000, rep: Type[Vector] = BSCVector, enc: dict = None) -> None:
+		""" Hyperspace to contain hypervectors of defined dimensions, representation and encoding method
+
+		:param dim: dimensions of hypervector
+		:param rep: representation as a subclass of Vector
+		:param enc: dictionary with keys for 'record' or 'n-gram'
+		"""
 		self.dim = dim
 		self.rep = rep
 		self.enc = enc
 		self.vectors = {}
 
+		# Create ID and level vectors for record-based encoding
 		if self.enc is not None and 'record' in self.enc:
 			self.id_vectors = None
 			self.level_vectors = None
@@ -294,10 +291,17 @@ class Hyperspace:
 	def __repr__(self):
 		return ''.join("'%s' , %s\n" % (v, self.vectors[v]) for v in self.vectors)
 
-	def __getitem__(self, name: str):
+	def __getitem__(self, name: str) -> Type[Vector]:
 		return self.vectors[name]
 
-	def add(self, name: str = None, features: np.ndarray = None) -> Vector:
+	def add(self, name: str = None, features: np.ndarray = None) -> Type[Vector]:
+		""" Add new hypervector to space
+
+		:param name: Name for hypervector, randomly generated if empty
+		:param features: ndarray of features for record-based or n-gram encoding
+		:return: Vector subclass defined in representation
+		"""
+		# TODO: Add option to specify number of vectors generated, return as list
 		if self.enc is not None and 'record' in self.enc:
 			if features is None:
 				raise ValueError('Record-based encoded vectors must supply features to be added')
@@ -314,15 +318,23 @@ class Hyperspace:
 		self.vectors[name] = v
 		return v
 
-	def insert(self, v: Vector, name: str = None) -> str:
+	def insert(self, v: Type[Vector], name: str = None) -> None:
+		""" Insert hypervector in space
+
+		:param v: Vector subclass object
+		:param name: Name of hypervector
+		"""
 		if name is None:
 			name = self.__random_name()
 
 		self.vectors[name] = v
 
-		return name
+	def query(self, x: Type[Vector]) -> Tuple[Type[Vector], float]:
+		""" Find hypervector in space closest to input hypervector
 
-	def find(self, x: Type[Vector]) -> (Type[Vector], float):
+		:param x: Hypervector to measure distance against
+		:return: (closest hypervector, distance)
+		"""
 		d = 1.0
 		match = None
 
@@ -331,5 +343,4 @@ class Hyperspace:
 				match = v
 				d = self.vectors[v].dist(x)
 
-		# print d
 		return match, d
