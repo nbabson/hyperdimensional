@@ -13,25 +13,43 @@ parser.add_argument("--i", type=int, default=20)
 parser.add_argument("--k", type=int, default=2) 
 parser.add_argument("--debug", dest="debug", action = "store_true")
 parser.add_argument("--plot", dest="plot", action = "store_true")
-parser.set_defaults(debug=False, plot=False)
+parser.add_argument("--bits", type=int, default=1)
+parser.add_argument("--states", type=int, default=2)
+parser.add_argument("--randomize", dest="randomize", action = "store_true")
+parser.set_defaults(debug=False, plot=False, randomize=False)
 args = parser.parse_args()
 
 K = args.k                # in degree connectivity
 N = 617              # number of features
 I = args.i              # iterations 
-LENGTH = N * (I + 1)       # hypervector dimensions
+BITS = args.bits
+LENGTH = (N * BITS) * (I + 1)       # hypervector dimensions
 DEBUG = args.debug
+RANDOMIZE = args.randomize
 
 class RBN:
+    mask = np.random.permutation(np.arange(N*BITS))
     Pow = 2** np.arange(K)
-    Connections = np.apply_along_axis(np.random.permutation, 1, np.tile(range(N), (N,1)))[:, 0:K]
-    Functions = np.random.randint(0, 2, (N, 2**K))
-    State = np.zeros((I+1, N), dtype=int)
+    Connections = np.apply_along_axis(np.random.permutation, 1, np.tile(range(N*BITS), (N*BITS,1)))[:, 0:K]
+    Functions = np.random.randint(0, 2, (N*BITS, 2**K))
+    State = np.zeros((I+1, N * BITS), dtype=int)
 
     def encode(self, inp):
-        self.State[0] = inp 
+        if RANDOMIZE:
+            self.State[0] = [inp[i] for i in self.mask] 
+        else:    
+            self.State[0] = inp 
         for i in range(I):
             self.State[i+1] = self.Functions[:, np.sum(self.Pow * self.State[i, self.Connections], 1)].diagonal()
+
+        '''    
+        # Show example RBN for testing
+        plt.imshow(self.State, cmap='Greys', interpolation='None')
+        plt.xlim([0, 30])
+        plt.show()
+        sys.exit()
+        '''
+
         return self.State    
 
 class RBN2: # RBN with average in-degree K
@@ -40,25 +58,43 @@ class RBN2: # RBN with average in-degree K
 
 # Round real valued input data to number of network states
 def smooth_data(data, states):
+    bins = states ** BITS 
     result = [ [] for _ in range(26) ]
     for letter in range(26):
         for line in range(len(data[letter])):
-            # Regular threshold
+            # Threshold features into states**BITS bins
+            data_line = []
             for number in range(N):
-                data[letter][line][number] = min((data[letter][line][number] +  1)  // (2 / float(states)), states-1)
-            result[letter].append(list(map(int, data[letter][line])))    
+                datum = int(min((data[letter][line][number] +  1)  // (2 / float(bins)), bins-1))
+                data_line += dec_to_base_N(datum, states)
+            result[letter].append(data_line)    
+    '''       
+    for i in range(20):        
+        print(result[0][0][i], end=' ')        
+    print()    
+    sys.exit()
+    '''
     return result    
+
+def dec_to_base_N(num, N):
+    count = BITS
+    ans = [0]  *  BITS
+    while num > 0:
+        count -= 1
+        ans[count] = num % N
+        num = num // N
+    return ans    
 
 def init():
     # Load train and test data into (26,0) arrays by class 
     train = [ [] for _ in range(26) ]
-    with open('Datasets/isolet1+2+3+4.data', 'r') as f:
+    with open('../HyperDimensional/Datasets/isolet1+2+3+4.data', 'r') as f:
         for line in f:
             currentline = list(map(float, line.split(',')))
             train[int(currentline[-1]) - 1].append(currentline[:-1])
     train = smooth_data(train, 2)        
     test = [ [] for _ in range(26) ]
-    with open('Datasets/isolet5.data', 'r') as f:
+    with open('../HyperDimensional/Datasets/isolet5.data', 'r') as f:
         for line in f:
             currentline = list(map(float, line.split(',')))
             test[int(currentline[-1]) - 1].append(currentline[:-1])
@@ -143,7 +179,7 @@ def train_letters(train, rbn):
             print()    
         print()    
 
-    # Threshold class vectors to binary
+    # Threshold class vectors to # number of states
     for i in range(26):
         instances = 238 if i == 5 else 240
         letters[i] = list(map(lambda x: round(x/instances), letters[i])) 
@@ -167,9 +203,12 @@ def plot_letters(letters):
 def main():
     plot = args.plot
     rbn = RBN()
+    print('Hypervector dimensions: %i' %(LENGTH))
     train, test = init()
 
-    print('Hypervector dimensions: %i' %(LENGTH))
+    # Show example RBN for testing 
+    #rbn.encode(train[0][0])    # Test sample RBN
+
     letters = train_letters(train, rbn)
     if DEBUG:
         for j in range(5):
