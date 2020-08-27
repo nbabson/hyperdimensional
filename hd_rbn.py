@@ -7,16 +7,20 @@ from scipy.spatial import distance as dst
 from sklearn.decomposition import PCA as sklearnPCA
 import pandas as pd 
 import seaborn as sn
+import math, random
+from statistics import mean
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--i", type=int, default=20) 
-parser.add_argument("--k", type=int, default=2) 
+parser.add_argument("--k", type=float, default=2.) 
 parser.add_argument("--debug", dest="debug", action = "store_true")
 parser.add_argument("--plot", dest="plot", action = "store_true")
 parser.add_argument("--bits", type=int, default=1)
 parser.add_argument("--states", type=int, default=2)
 parser.add_argument("--randomize", dest="randomize", action = "store_true")
-parser.set_defaults(debug=False, plot=False, randomize=False)
+parser.add_argument("--average", dest="average", action="store_true")  # use average in-degree RBN
+parser.add_argument("--deviation", type=float, default=5.)
+parser.set_defaults(debug=False, plot=False, randomize=False, average=False)
 args = parser.parse_args()
 
 K = args.k                # in degree connectivity
@@ -26,13 +30,18 @@ BITS = args.bits
 LENGTH = (N * BITS) * (I + 1)       # hypervector dimensions
 DEBUG = args.debug
 RANDOMIZE = args.randomize
+STATES = args.states
 
 class RBN:
-    mask = np.random.permutation(np.arange(N*BITS))
-    Pow = 2** np.arange(K)
-    Connections = np.apply_along_axis(np.random.permutation, 1, np.tile(range(N*BITS), (N*BITS,1)))[:, 0:K]
-    Functions = np.random.randint(0, 2, (N*BITS, 2**K))
-    State = np.zeros((I+1, N * BITS), dtype=int)
+
+    K = int(args.k)
+
+    def __init__(self):
+        self.mask = np.random.permutation(np.arange(N*BITS))
+        self.Pow = 2** np.arange(self.K)
+        self.Connections = np.apply_along_axis(np.random.permutation, 1, np.tile(range(N*BITS), (N*BITS,1)))[:, 0:self.K]
+        self.Functions = np.random.randint(0, 2, (N*BITS, 2**self.K))
+        self.State = np.zeros((I+1, N * BITS), dtype=int)
 
     def encode(self, inp):
         if RANDOMIZE:
@@ -53,8 +62,76 @@ class RBN:
         return self.State    
 
 class RBN2: # RBN with average in-degree K
-    pass
 
+    def __init__(self):
+        deviation = args.deviation
+        self.mask = np.random.permutation(np.arange(N*BITS))
+        self.Pow = 2** np.arange(math.ceil(K))
+        self.Connections = []
+        self.Inputs = []
+        self.Functions = []
+        i = 0
+        while i < N*BITS:
+            num_inputs = round(random.normalvariate(K, deviation))
+            if num_inputs < 0 or num_inputs > 2*K:
+                i -= 1
+            else:
+                self.Inputs.append(num_inputs)
+                self.Connections.append(np.random.permutation(range(N))[:round(num_inputs)])
+                self.Functions.append(np.random.randint(0, STATES, 2**num_inputs))
+            i += 1
+        self.State = np.zeros((I+1, N*BITS), dtype=int)    
+
+        #print('Inputs:')
+        #print(self.Inputs)
+        if DEBUG:
+            print(len(self.Inputs))
+            print('Inputs:')
+            print(self.Inputs)
+            print('Connnections:')
+            print(self.Connections)
+            print('Functions:')
+            print(self.Functions)
+            print('Mean inputs: %.3f' %(mean(self.Inputs)))
+
+            print('Average in-degree RBN')
+
+    def encode(self, inp):
+        if RANDOMIZE:
+            self.State[0] = [inp[i] for i in self.mask]
+        else:
+            self.State[0] = inp   #[N*BITS] # TODO edit
+        for i in range(I):
+            for j in range(N*BITS):
+            #    self.State[i+1][j] = 
+            #    print('Cell: %i --> %i' %(j, self.State[i][j])) #, self.Connections])   `
+            #    print('   Conn: ', self.Connections[j])
+            #    print('   Func: ', self.Functions[j])
+            # TODO write function to convert Connections, Function, and State[i] into result
+            #self.State[i+1] = self.Functions[:, np.sum(self.Pow * self.State[i, self.Connections], \
+            #    1)].diagonal()
+                power = 1
+                output = 0
+                #for k in range(len(self.Connections[j])):
+                #    print(self.State[i][self.Connections[j][k]], end=' ')
+                #print()    
+                for k in range(len(self.Connections[j])):
+                    output += power * self.State[i][self.Connections[j][k]]
+                    power *= 2
+
+                #print('Output for cell %i: %i' %(j, output))    
+                #print('Next state: %i' %(self.Functions[j][output])) 
+                self.State[i+1][j] = self.Functions[j][output]
+                        
+            
+        
+        # Show example RBN for testing
+        #plt.imshow(self.State, cmap='Greys', interpolation='None')
+        #plt.xlim([0, 100])
+        #plt.show()
+        #sys.exit()
+
+        return self.State     
 
 # Round real valued input data to number of network states
 def smooth_data(data, states):
@@ -200,14 +277,20 @@ def plot_letters(letters):
         plt.text(x+.03, y+.03, letter, fontsize=10)
     plt.show(block=False)    
 
+#N = 40 # TODO remove after testing RBN2
 def main():
     plot = args.plot
-    rbn = RBN()
+    average = args.average
+    if average:
+        rbn = RBN2()
+    else:    
+        rbn = RBN()
     print('Hypervector dimensions: %i' %(LENGTH))
     train, test = init()
 
     # Show example RBN for testing 
     #rbn.encode(train[0][0])    # Test sample RBN
+    #sys.exit()
 
     letters = train_letters(train, rbn)
     if DEBUG:
