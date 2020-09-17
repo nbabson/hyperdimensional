@@ -1,3 +1,4 @@
+
 import matplotlib.pyplot as plt
 import multiprocessing
 import numpy as np
@@ -20,7 +21,8 @@ parser.add_argument("--states", type=int, default=2)
 parser.add_argument("--randomize", dest="randomize", action = "store_true")
 parser.add_argument("--average", dest="average", action="store_true")  # use average in-degree RBN
 parser.add_argument("--deviation", type=float, default=5.)
-parser.set_defaults(debug=False, plot=False, randomize=False, average=False)
+parser.add_argument("--dual", dest="dual", action="store_true")
+parser.set_defaults(debug=False, plot=False, randomize=False, average=False, dual=False)
 args = parser.parse_args()
 
 K = args.k                # in degree connectivity
@@ -60,6 +62,34 @@ class RBN:
         '''
 
         return self.State    
+
+class Dual_RBN: 
+
+    def __init__(self):
+        print('Dual RBN')
+        K = int(args.k)
+        rbn1 = RBN()
+        rbn2 = RBN()
+
+        train, test = init()
+        t = rbn1.encode(train[0][0])
+        for i in range(20):
+            print(t[0][i], end=' ')
+        print()    
+        t = rbn2.encode(train[0][0])
+        for i in range(20):
+            print(t[0][i], end=' ')
+        print()    
+        plt.imshow(rbn1.encode(train[0][0]))
+        plt.show(block=False)
+        plt.xlim([0, 30])
+        plt.figure(2)
+        plt.imshow(rbn2.encode(train[0][0]))
+        plt.xlim([0, 30])
+        plt.show()
+        print('Testing')
+        sys.exit()
+
 
 class RBN2: # RBN with average in-degree K
 
@@ -281,8 +311,11 @@ def plot_letters(letters):
 def main():
     plot = args.plot
     average = args.average
+    dual = args.dual
     if average:
         rbn = RBN2()
+    elif dual:
+        rbn = Dual_RBN()
     else:    
         rbn = RBN()
     print('Hypervector dimensions: %i' %(LENGTH))
