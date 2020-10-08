@@ -12,24 +12,28 @@ import math, random
 from statistics import mean
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--i", type=int, default=20) 
-parser.add_argument("--k", type=float, default=2.) 
+parser.add_argument("--i", type=int, default=6) # 10 
+parser.add_argument("--k", type=float, default=4.) # 2 
 parser.add_argument("--debug", dest="debug", action = "store_true")
 parser.add_argument("--plot", dest="plot", action = "store_true")
-parser.add_argument("--bits", type=int, default=1)
+parser.add_argument("--bits", type=int, default=2) # 1
 parser.add_argument("--states", type=int, default=2)
 parser.add_argument("--randomize", dest="randomize", action = "store_true")
 parser.add_argument("--average", dest="average", action="store_true")  # use average in-degree RBN
 parser.add_argument("--deviation", type=float, default=5.)
 parser.add_argument("--dual", dest="dual", action="store_true")
-parser.set_defaults(debug=False, plot=False, randomize=False, average=False, dual=False)
+parser.add_argument("--compare", dest="compare", action="store_true")
+parser.set_defaults(debug=False, plot=False, randomize=False, average=False, dual=False, compare=False)
 args = parser.parse_args()
 
 K = args.k                # in degree connectivity
 N = 617              # number of features
 I = args.i              # iterations 
 BITS = args.bits
-LENGTH = (N * BITS) * (I + 1)       # hypervector dimensions
+if args.dual:
+    LENGTH = 2 * (N * BITS) * (I + 1)       # hypervector dimensions
+else:    
+    LENGTH = (N * BITS) * (I + 1)       # hypervector dimensions
 DEBUG = args.debug
 RANDOMIZE = args.randomize
 STATES = args.states
@@ -65,21 +69,15 @@ class RBN:
 
 class Dual_RBN: 
 
+    K = int(args.k)
+
     def __init__(self):
         print('Dual RBN')
-        K = int(args.k)
-        rbn1 = RBN()
-        rbn2 = RBN()
+        self.rbn1 = RBN()
+        self.rbn2 = RBN()
 
-        train, test = init()
-        t = rbn1.encode(train[0][0])
-        for i in range(20):
-            print(t[0][i], end=' ')
-        print()    
-        t = rbn2.encode(train[0][0])
-        for i in range(20):
-            print(t[0][i], end=' ')
-        print()    
+        #train, test = init()
+        '''
         plt.imshow(rbn1.encode(train[0][0]))
         plt.show(block=False)
         plt.xlim([0, 30])
@@ -87,8 +85,14 @@ class Dual_RBN:
         plt.imshow(rbn2.encode(train[0][0]))
         plt.xlim([0, 30])
         plt.show()
-        print('Testing')
-        sys.exit()
+        '''
+
+    def encode(self, inp):
+        return  np.concatenate((self.rbn1.encode(inp), self.rbn2.encode(inp)))
+
+
+    def get_rbns(self):
+        return self.rbn1, self.rbn2
 
 
 class RBN2: # RBN with average in-degree K
@@ -208,6 +212,8 @@ def init():
     test = smooth_data(test, 2)        
     return train, test        
 
+# ------------------------------------------------------------------------------------
+
 def parallel_train(train, rbn, letter, lo):
     my_letter = np.array([0 for _ in range(LENGTH)])
     if lo:
@@ -292,7 +298,99 @@ def train_letters(train, rbn):
         letters[i] = list(map(lambda x: round(x/instances), letters[i])) 
     return letters
 
+# ------------------------------------------------------------------------------------
+
+def parallel_train_small(train, rbn, letter, lo):
+    LEN = LENGTH // 2
+    my_letter = np.array([0 for _ in range(LEN)])
+    if lo:
+        for i in range(120):
+            my_letter += np.reshape(rbn.encode(train[i]), LEN)
+    else:
+        for i in range(120, len(train)):
+            my_letter += np.reshape(rbn.encode(train[i]), LEN)
+    letter[:] = np.add(letter, my_letter)        
+
+def parallel_test_small(test, rbn, correct_letter, letters, lo, incorrect, prediction):
+    LEN = LENGTH // 2
+    offset = 0 if lo else 30
+    for i in range(30):
+        if i+offset == len(test):
+            prediction[i+offset] = correct_letter
+            break
+        test_letter = np.reshape(rbn.encode(test[i+offset]), LEN)
+        min_distance = dst.hamming(letters[0], test_letter)
+        min_distance_letter = 0
+        for j in range(1, 26):
+            distance = dst.hamming(letters[j], test_letter)
+            if distance < min_distance:
+                min_distance = distance
+                min_distance_letter = j
+        prediction[i+offset] = min_distance_letter        
+        if correct_letter != min_distance_letter:
+            with incorrect.get_lock():
+                incorrect.value += 1
+            if DEBUG:
+                print('Incorrect: predicted -> %c,  actual -> %c'
+                        %(min_distance_letter+97, correct_letter+97))
+
+
+def test_letters_small(letters, test, rbn):
+    threads = 52
+    incorrect = multiprocessing.Value('i', 0)
+    prediction = [multiprocessing.Array('i', range(60)) for _ in range(26)]
+    print('Testing')
+    jobs = []
+    for i in range(threads):
+        letter = i // 2 
+        lo = True if i % 2 == 0 else False
+        p = multiprocessing.Process(target=parallel_test_small,
+                args=(test[letter], rbn, letter, letters, lo, incorrect, 
+                    prediction[letter]))
+        jobs.append(p)
+        p.start()
+    for j in jobs:
+        j.join()
+    return incorrect.value, prediction    
+
+
+def train_letters_small(train, rbn):
+    LEN = LENGTH // 2
+    threads = 52
+    letters = [multiprocessing.Array('i', range(LEN)) for _ in range(26)]
+
+    print('Training')
+    for i in range(26):
+        letters[i][:] = list(map(lambda x: 0, letters[i]))
+    jobs = []
+    for i in range(threads):
+        letter = i // 2
+        lo = True if i % 2 == 0 else False
+
+        p = multiprocessing.Process(target=parallel_train_small,
+                args=(train[letter], rbn, letters[letter], lo))
+        jobs.append(p)
+        p.start()
+    for j in jobs:
+        j.join()
+
+    if DEBUG:
+        for j in range(5):
+            for i in range(20):
+                print(letters[j][i], end=' ')
+            print()    
+        print()    
+
+    # Threshold class vectors to # number of states
+    for i in range(26):
+        instances = 238 if i == 5 else 240
+        letters[i] = list(map(lambda x: round(x/instances), letters[i])) 
+    return letters
+
+#------------------------------------------------------------------------------------------------
+
 def plot_letters(letters):        
+    plt.clf()
     pca = sklearnPCA(n_components=2)
     transformed = pd.DataFrame(pca.fit_transform(letters))
     letter_list = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
@@ -307,11 +405,11 @@ def plot_letters(letters):
         plt.text(x+.03, y+.03, letter, fontsize=10)
     plt.show(block=False)    
 
-#N = 40 # TODO remove after testing RBN2
 def main():
     plot = args.plot
     average = args.average
     dual = args.dual
+    compare = args.compare
     if average:
         rbn = RBN2()
     elif dual:
@@ -319,13 +417,115 @@ def main():
     else:    
         rbn = RBN()
     print('Hypervector dimensions: %i' %(LENGTH))
+
     train, test = init()
 
     # Show example RBN for testing 
-    #rbn.encode(train[0][0])    # Test sample RBN
-    #sys.exit()
+    #print(np.shape(rbn.encode(train[0][0])))    # Test sample RBN
+    #print(len(np.reshape(rbn.encode(train[0][0]), LENGTH/2)))    # Test sample RBN
+    if dual and compare:
+        rbn1, rbn2 = rbn.get_rbns()
+        print(type(rbn1))
+        print(np.shape(rbn1.encode(train[0][0])))    # Test sample RBN
+        letters1 = train_letters_small(train, rbn1)
+        letters2 = train_letters_small(train, rbn2)
+        letters = train_letters(train, rbn)
+
+        incorrect, prediction = test_letters(letters, test, rbn)        
+        correct = (1 - (incorrect / 1559)) * 100
+        incorrect1, prediction1 = test_letters_small(letters1, test, rbn1)        
+        correct1 = (1 - (incorrect1 / 1559)) * 100
+        incorrect2, prediction2 = test_letters_small(letters2, test, rbn2)        
+        correct2 = (1 - (incorrect2 / 1559)) * 100
+        print('Number incorrect RBN1 %i' %(incorrect1))
+        print('Correct RBN1: %.3f %%' %(correct1))
+        print('Number incorrect RBN2 %i' %(incorrect2))
+        print('Correct RBN2: %.3f %%' %(correct2))
+        print('Number incorrect combined %i' %(incorrect))
+        print('Correct combined: %.3f %%' %(correct))
+        
+        if plot:
+            plot_letters(letters1)
+
+            # Plot confusion matrix of results
+            plt.figure(2)
+            act = np.zeros(1560, dtype=int)
+            for i in range(1, 26):
+                offset = i * 60  
+                for j in range(60):
+                    act[offset+j] = i
+            letter_list = list('abcdefghijklmnopqrstuvwxyz')
+            correction = np.arange(26)
+            confusion_data = {'actual': np.append(act, correction),
+                              'predicted': np.append(np.reshape(prediction1, 1560), correction) }
+            df = pd.DataFrame(confusion_data, columns=['actual', 'predicted'])
+            confusion_matrix = (pd.crosstab(df['actual'], df['predicted'],
+                                rownames=['Actual'], colnames=['Predicted'])) #, margins=True))
+            sn.heatmap(confusion_matrix, annot=True, yticklabels=letter_list,
+                    xticklabels=letter_list)
+            plt.show(block=False)
+            input('Press <ENTER> to continue.')
+            plt.close(1)
+            plt.close(2)
+            # ---------------------------------------------------------------------------
+            plot_letters(letters2)
+
+            # Plot confusion matrix of results
+            plt.figure(2)
+            act = np.zeros(1560, dtype=int)
+            for i in range(1, 26):
+                offset = i * 60  
+                for j in range(60):
+                    act[offset+j] = i
+            letter_list = list('abcdefghijklmnopqrstuvwxyz')
+            correction = np.arange(26)
+            confusion_data = {'actual': np.append(act, correction),
+                              'predicted': np.append(np.reshape(prediction2, 1560), correction) }
+            df = pd.DataFrame(confusion_data, columns=['actual', 'predicted'])
+            confusion_matrix = (pd.crosstab(df['actual'], df['predicted'],
+                                rownames=['Actual'], colnames=['Predicted'])) #, margins=True))
+            sn.heatmap(confusion_matrix, annot=True, yticklabels=letter_list,
+                    xticklabels=letter_list)
+            plt.show(block=False)
+            input('Press <ENTER> to continue.')
+            plt.close(1)
+            plt.close(2)
+            # ---------------------------------------------------------------------------
+            plot_letters(letters)
+
+            # Plot confusion matrix of results
+            plt.figure(2)
+            act = np.zeros(1560, dtype=int)
+            for i in range(1, 26):
+                offset = i * 60  
+                for j in range(60):
+                    act[offset+j] = i
+            letter_list = list('abcdefghijklmnopqrstuvwxyz')
+            correction = np.arange(26)
+            confusion_data = {'actual': np.append(act, correction),
+                              'predicted': np.append(np.reshape(prediction, 1560), correction) }
+            df = pd.DataFrame(confusion_data, columns=['actual', 'predicted'])
+            confusion_matrix = (pd.crosstab(df['actual'], df['predicted'],
+                                rownames=['Actual'], colnames=['Predicted'])) #, margins=True))
+            sn.heatmap(confusion_matrix, annot=True, yticklabels=letter_list,
+                    xticklabels=letter_list)
+            plt.show(block=False)
+            input('Press <ENTER> to continue.')
+            # ---------------------------------------------------------------------------
+        sys.exit()
+
+    if dual:
+        plt.imshow(rbn.encode(train[0][0]))
+        plt.show(block=False)
+        #plt.xlim([(N*BITS)//2 - 30, (N*BITS)//2 + 30])
+        plt.xlim([0, 60])
+        plt.show()
+        print(np.shape(rbn.encode(train[0][0])))
+
+        sys.exit()
 
     letters = train_letters(train, rbn)
+
     if DEBUG:
         for j in range(5):
             for i in range(20):
