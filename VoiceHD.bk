@@ -16,7 +16,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument("--plot", dest="plot", action = "store_true")
 parser.add_argument('--m', type=int, default=10)
 parser.add_argument('--dimension', type=int, default=10000)
-parser.add_argument('--retrain', type=int, default=0)
 parser.set_defaults(debug=False, plot=False, randomize=False, average=False, dual=False)
 args = parser.parse_args()
 
@@ -129,7 +128,7 @@ def test_letters(letters, test, model):
     return incorrect.value, prediction    
 
 
-def train_letters(train, model, retrain):
+def train_letters(train, model):
     threads = 52
     letters = [multiprocessing.Array('i', range(D)) for _ in range(26)]
 
@@ -148,12 +147,11 @@ def train_letters(train, model, retrain):
     for j in jobs:
         j.join()
 
-    if not retrain:
-        # Threshold class vectors to # number of states
-        for i in range(26):
-            # Two training data are missing
-            instances = 238 if i == 5 else 240
-            letters[i] = list(map(lambda x: round(x/instances), letters[i])) 
+    # Threshold class vectors to # number of states
+    for i in range(26):
+        # Two training data are missing
+        instances = 238 if i == 5 else 240
+        letters[i] = list(map(lambda x: round(x/instances), letters[i])) 
     return letters
 
 def plot_letters(letters):        
@@ -191,18 +189,12 @@ def plot_confusion(prediction):
 
 def main():
     plot = args.plot
-    retrain = args.retrain
     model = Record_Based()
 
     print('Hypervector dimensions: %i' %(D))
     train, test = init()
 
-    letters = train_letters(train, model, retrain)
-    for i in range(20):
-        print(letters[0][i], end=' ')
-    print()
-    #sys.exit()
-
+    letters = train_letters(train, model)
     incorrect, prediction = test_letters(letters, test, model)        
     correct = (1 - (incorrect / 1559)) * 100
     print('Number incorrect %i' %(incorrect))
