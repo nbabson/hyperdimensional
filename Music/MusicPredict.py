@@ -5,6 +5,7 @@ import re
 import music as M
 from scipy.spatial import distance as dst
 import copy
+import os
 
 D = 10000
 NOTES = 20
@@ -93,7 +94,7 @@ def clean(chorales):
                 duration = st[i]
                 counter += 2
 
-        # TODO Add initial rest
+        # Add initial rest
         if st[0] != 0:
             freq = [0] + freq
             rests_dur = [NOTE_LENGTH * st[0]] + rests_dur
@@ -218,6 +219,8 @@ def main():
     short_length = 20
     chorale_num = 1 
 
+    #print('Play Chorale')
+    #os.system('paplay short_chorale.wav')
     chorales, notes, rest, lengths = init()
     chorales, freq_list, key_sigs = clean(chorales)
     note_dict = dict(zip(freq_list, notes))
