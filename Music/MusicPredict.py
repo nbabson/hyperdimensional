@@ -158,12 +158,6 @@ def test_key_sigs(key_sig_vectors, chorale_vectors, key_sigs):
     print('Incorrect: %i' %(incorrect))        
     return incorrect
 
-# TODO threshold new_chorale vector 
-'''
-        # Threshold vectors
-        instances = len(chor[0])
-        chorale_vec = list(map(lambda x: round(x/instances), chorale_vec))
-'''        
 
 def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict,
         short_length, chorales, chorale_number, chorale_vectors):
@@ -191,16 +185,42 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
                 next_note = np.bitwise_xor(note_dict[n], length_dict[l])
                 for rot in range(i):   # short_length + i):
                     next_note = rotate(next_note, D)
+                '''    
+                # Compare against each chorale individually
                 for chorale in chorale_vectors:
                     distance = dst.hamming(next_note, chorale)
                     #distance = dst.hamming(next_note, chorale_vectors[chorale_number])
-                    #distance = dst.hamming(next_note, all_chorales)
                     #distance = dst.hamming(new_chorale_vector+next_note, chorale_vectors[chorale_number])
+                '''
+                # Threshold new chorale vector
+                thresh_new_chorale = list(map(lambda x: round(x/ (i+1)), 
+                    new_chorale_vector + next_note))
+                #distance = dst.hamming(next_note, all_chorales)
+                #distance = dst.hamming(new_chorale_vector, all_chorales)
+
+                # Compare against combined chorales
+                distance = dst.hamming(thresh_new_chorale, all_chorales)
+                if min_distance > distance:
+                    prediction = n
+                    predict_length = l
+                    min_distance = distance
+                    predicted_note = next_note
+
+                '''
+                # Compare against each chorale individually
+                chorale_num = 0
+                for chorale in chorale_vectors:
+                    distance = dst.hamming(thresh_new_chorale, chorale)
+
                     if min_distance > distance:
                         prediction = n
                         predict_length = l
                         min_distance = distance
-        new_chorale_vector += next_note
+                        predicted_note = next_note
+                        predicted_chorale_num = chorale_num
+                    chorale_num += 1    
+                '''
+        new_chorale_vector += predicted_note
         print(min_distance)    
         new_chorale[0].append(prediction)
         new_chorale[1].append(predict_length)
@@ -209,7 +229,7 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
     print(np.shape(new_chorale_vector))
     print(new_chorale_vector)
 
-    record(short_chorales[chorale_number], 'short_chorale')
+    #record(short_chorales[chorale_number], 'short_chorale')
     record(new_chorale, 'new_chorale_v2')
 
 
@@ -239,7 +259,7 @@ def main():
     short_chorales = [[notes[:short_length] for notes in chor] for chor in chorales]
     short_chorale_vectors = encode(short_chorales, note_dict, length_dict)
 
-    #record(chorales[1], 'chorale1')
+    #record(chorales[0], 'chorale')
     #record(short_chorales[0], 'short_chorale')
 
 
