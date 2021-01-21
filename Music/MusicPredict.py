@@ -172,7 +172,7 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
     #print(np.shape(all_chorales))
     #print(all_chorales)
     
-    # TODO Build new_chorale_vector
+    # Build new_chorale_vector
     new_chorale_vector = [0] * D 
     new_chorale_vector = np.array(new_chorale_vector)
 
@@ -199,7 +199,11 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
                 #distance = dst.hamming(new_chorale_vector, all_chorales)
 
                 # Compare against combined chorales
-                distance = dst.hamming(thresh_new_chorale, all_chorales)
+                #distance = dst.hamming(thresh_new_chorale, all_chorales)
+
+                # Compare against single chorale
+                distance = dst.hamming(thresh_new_chorale, chorale_vectors[chorale_number])
+                #print('         %f' %distance)
                 if min_distance > distance:
                     prediction = n
                     predict_length = l
@@ -230,14 +234,15 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
     print(new_chorale_vector)
 
     #record(short_chorales[chorale_number], 'short_chorale')
-    record(new_chorale, 'new_chorale_v2')
+    record(new_chorale, 'duplicate_chorale')
+    record(chorales[chorale_number], 'original_chorale')
 
 
 def main():
     trials = 20
     incorrect = 0
     short_length = 20
-    chorale_num = 1 
+    chorale_num = 5 
 
     #print('Play Chorale')
     #os.system('paplay short_chorale.wav')
