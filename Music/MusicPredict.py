@@ -198,11 +198,12 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
                 #distance = dst.hamming(next_note, all_chorales)
                 #distance = dst.hamming(new_chorale_vector, all_chorales)
 
+                '''
                 # Compare against combined chorales
-                #distance = dst.hamming(thresh_new_chorale, all_chorales)
+                distance = dst.hamming(thresh_new_chorale, all_chorales)
 
                 # Compare against single chorale
-                distance = dst.hamming(thresh_new_chorale, chorale_vectors[chorale_number])
+                #distance = dst.hamming(thresh_new_chorale, chorale_vectors[chorale_number])
                 #print('         %f' %distance)
                 if min_distance > distance:
                     prediction = n
@@ -223,9 +224,9 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
                         predicted_note = next_note
                         predicted_chorale_num = chorale_num
                     chorale_num += 1    
-                '''
+
         new_chorale_vector += predicted_note
-        print(min_distance)    
+        print('%f         %d' %(min_distance, predicted_chorale_num))    
         new_chorale[0].append(prediction)
         new_chorale[1].append(predict_length)
     print(new_chorale)
@@ -234,8 +235,8 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
     print(new_chorale_vector)
 
     #record(short_chorales[chorale_number], 'short_chorale')
-    record(new_chorale, 'duplicate_chorale')
-    record(chorales[chorale_number], 'original_chorale')
+    record(new_chorale, 'individual_predict')
+    #record(chorales[chorale_number], 'original_chorale')
 
 
 def main():
@@ -264,7 +265,7 @@ def main():
     short_chorales = [[notes[:short_length] for notes in chor] for chor in chorales]
     short_chorale_vectors = encode(short_chorales, note_dict, length_dict)
 
-    #record(chorales[0], 'chorale')
+    #record(chorales[5], 'chorale5')
     #record(short_chorales[0], 'short_chorale')
 
 
