@@ -235,7 +235,7 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
     print(new_chorale_vector)
 
     #record(short_chorales[chorale_number], 'short_chorale')
-    record(new_chorale, 'individual_predict')
+    record(new_chorale, '../../../Music/individual_predict')
     #record(chorales[chorale_number], 'original_chorale')
 
 
