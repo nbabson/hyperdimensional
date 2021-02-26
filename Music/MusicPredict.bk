@@ -5,6 +5,21 @@ import re
 import music as M
 from scipy.spatial import distance as dst
 import copy
+import os
+import multiprocessing
+import argparse
+import pickle
+import mido
+
+parser = argparse.ArgumentParser()
+parser.add_argument('--multi', dest='multi', action='store_true')
+parser.add_argument('--combined', dest='combined', action='store_true')
+parser.add_argument('--midi', dest='midi', action='store_true')
+parser.set_defaults(multi=False, combined=False, midi=False)
+args = parser.parse_args()
+multi = args.multi
+combined = args.combined
+midi = args.midi
 
 D = 10000
 NOTES = 20
@@ -52,6 +67,32 @@ def init():
 
     return chorales, Notes, Rest, Lengths
 
+
+def encodeMidi(song, mid_notes_dict, name):
+
+    length = 400
+    mid_song = list()
+    for i in range(len(song[0])):
+        l1 = [1, mid_notes_dict[song[0][i]], 64, 0]
+        l2 = [1, mid_notes_dict[song[0][i]], 0, song[1][i] * length]
+        mid_song.append(l1)
+        mid_song.append(l2)
+    mid_song = np.array([[mid_song]])    
+
+    file = mido.MidiFile()
+    for i in range(len(mid_song[0])):
+        track = mido.MidiTrack()
+        track.append(mido.Message('control_change', channel=0, control=0, value=80, time=0))
+        track.append(mido.Message('control_change', channel=0, control=32, value=0, time=0))
+        track.append(mido.Message('program_change', channel=0, program=50, time=0))
+        for j in range(len(mid_song[0][i])):
+            note = mido.Message('note_on',channel=int(mid_song[0][i][j][0]), note=int(mid_song[0][i][j][1]), velocity=int(mid_song[0][i][j][2]), time=int(mid_song[0][i][j][3]))
+            track.append(note)
+        file.tracks.append(track)
+    file.save(name + '.mid')    
+    #return file
+
+
 def record(chorale, name):
     note_length = .125 # Fraction of second per 16th note
     synth = M.core.Being()
@@ -93,7 +134,7 @@ def clean(chorales):
                 duration = st[i]
                 counter += 2
 
-        # TODO Add initial rest
+        # Add initial rest
         if st[0] != 0:
             freq = [0] + freq
             rests_dur = [NOTE_LENGTH * st[0]] + rests_dur
@@ -118,8 +159,9 @@ def encode(chorales, note_dict, length_dict):
         chorale_vec = [0] * D
         for i in range(len(chor[0])):
             note = np.bitwise_xor(note_dict[chor[0][i]], length_dict[chor[1][i]])
-            for rot in range(i): #i):
+            for rot in range(i): 
                 note = rotate(note, D)
+            # Elementwise addition because note is a numpy array    
             chorale_vec += note
 
         # Threshold vectors
@@ -156,92 +198,205 @@ def test_key_sigs(key_sig_vectors, chorale_vectors, key_sigs):
     print('Incorrect: %i' %(incorrect))        
     return incorrect
 
+
+def parallel_pick_note(rot, n, l, note, length, new_chorale_vector, chorale_vectors, 
+        min_distance, prediction, predict_length, predicted_note, predicted_chorale_num, last_pick):
+    #print('%f    %f' %(n, l))
+    #print(note[n])
+    #next_note = np.bitwise_xor(note[n], length[l])
+    next_note = np.bitwise_xor(note, length)
+    for _ in range(rot):   # short_length + i):
+        next_note = rotate(next_note, D)
+    # Threshold new chorale vector
+    thresh_new_chorale = list(map(lambda x: round(x/ (rot+1)), 
+        new_chorale_vector + next_note))
+
+    # Compare against each chorale individually
+    chorale_num = 0
+    for chorale in chorale_vectors:
+        distance = dst.hamming(thresh_new_chorale, chorale)
+
+        #if min_distance.value > distance:
+        #print('Type: ', end='')
+        #print(type(min_distance))
+        #print('Value: ', end='')
+        #print(min_distance.value)
+        #print('    ', end='')
+        #print(type(distance))
+        #if min_distance > distance:
+
+        # don't let successive notes be from same chorale
+        if min_distance.value > distance and last_pick != chorale_num: 
+            #print(min_distance.value)
+            #with prediction.get_lock():
+            prediction.value = n
+            #with predict_length.get_lock():    
+            predict_length.value = l
+            #with min_distance.get_lock():    
+            min_distance.value = distance
+            #with predicted_note.get_lock():    
+            #print('Next note: ', end='')
+            #print(next_note)
+            #predicted_note.value = next_note
+            predicted_note[:] = next_note
+            #print('Predicted note: ', end='')
+            #print(predicted_note.value)
+            #with predicted_chorale_num.get_lock():    
+            predicted_chorale_num.value = chorale_num
+        chorale_num += 1    
+
 def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict,
-        short_length, chorales, chorale_number, chorale_vectors):
+        short_length, chorales, chorale_number, chorale_vectors, mid_notes_dict):
     #note_duration = .5
 
-    # TODO Build new_chorale_vector
+    lengths_list = [.125, .25, .375, .5, .75, 1., 1.5, 2, 10]
+    # Add all chorales together to represent complete knowledge space
+    all_chorales = np.zeros(D) #, dtype=int)
+    instances = len(chorales)
+    if combined:
+        for i in range(instances):
+            all_chorales += chorale_vectors[i]
+        all_chorales = list(map(lambda x: round(x/instances), all_chorales))
+        predicted_chorale_num = -1
+    #print(np.shape(all_chorales))
+    #print(all_chorales)
+    
+    # Build new_chorale_vector
     new_chorale_vector = [0] * D 
+    new_chorale_vector = np.array(new_chorale_vector)
 
-    '''
-    print('Note Dict')
-    print(note_dict)
-    for x in note_dict:
-        print(note_dict[x])
-    print(length_dict)    
-    print()
-    print(short_chorales[0])
-    '''
-    prediction, predict_length = 0, 0
-    predict2, predict3 = 0, 0
-    length2, lenbgth3 = 0, 0 
-    new_chorale = [[],[]] #copy.deepcopy(short_chorales[chorale_number])
-    new_chorale2 = [[],[]] #copy.deepcopy(short_chorales[chorale_number])
-    new_chorale3 = [[],[]] #copy.deepcopy(short_chorales[chorale_number])
-    # Picks long duration tones and rests
-    #worst_chorale = [[],[]] # Generate chorale furthest from chorales[chorale_number]
-    for i in range(short_length):
-        min_distance = 1.
-        #max_distance = 0.
-        for n in note_dict:
-            for l in length_dict:
-                next_note = np.bitwise_xor(note_dict[n], length_dict[l])
-                for rot in range(i):   # short_length + i):
-                    next_note = rotate(next_note, D)
-                '''
-                        note = np.bitwise_xor(note_dict[chor[0][i]], rest_dict[chor[1][i]])
-                        for rot in range(i): #i):
-                            note = rotate(note, D)
-                '''
-                #new_chorale_vector += next_note
-                distance = dst.hamming(next_note, chorale_vectors[chorale_number])
-                #distance = dst.hamming(new_chorale_vector, chorale_vectors[chorale_number])
-                if min_distance > distance:
-                    predict3 = predict2
-                    predict2 = prediction
-                    prediction = n
-                    length3 = length2
-                    length2 = predict_length
-                    predict_length = l
-                    min_distance = distance
-                #if max_distance < distance:    
-                #    worst_predict = n
-                #    worst_length = l
-                #    max_distance = distance
+    if multi:
+        # Parallelize for 63 cores
+        #print(len(note_dict)) # 21
+        #print(len(length_dict)) # 9
+        prediction = multiprocessing.Value('f', 0)
+        predict_length = multiprocessing.Value('f', 0)
+        predicted_chorale_num = multiprocessing.Value('i', -1)
+        predicted_note = multiprocessing.Array('i', range(D))
+        last_pick = -1
 
-            #print(next_note, end='\t')
-            #print(n, end='\t')
-            #print(dst.hamming(next_note, short_chorale_vectors[0]))
-        print(min_distance)    
-        #print('Actual: %f' %chorales[0][0][short_length + i])
-        #print('Prediction: %f' %prediction)
-        new_chorale[0].append(prediction)
-        #new_chorale[1].append(note_duration)
-        new_chorale[1].append(predict_length)
-        new_chorale2[0].append(predict2)
-        new_chorale2[1].append(length2)
-        new_chorale3[0].append(predict3)
-        new_chorale3[1].append(length3)
-        #worst_chorale[0].append(worst_predict)
-        #worst_chorale[1].append(worst_length)
+        new_chorale = [[],[]] #copy.deepcopy(short_chorales[chorale_number])
+        for i in range(short_length):
+            min_distance = multiprocessing.Value('f', 1.)
+            for l1 in range(3):
+                jobs = []
+                for n in note_dict: #range(21):
+                    for l2 in range(3):
+                        #print(l  + (i*3))
+                        length = lengths_list[l2 + (l1*3)]
+                        #args=(n, l+(i*3), note_dict[n], length_dict[l+(i*3)],
+                        p = multiprocessing.Process(target=parallel_pick_note,
+                                args=(i, n, length, note_dict[n], length_dict[length],
+                                    new_chorale_vector, chorale_vectors,
+                                    min_distance, prediction, predict_length, predicted_note, 
+                                    predicted_chorale_num, last_pick))
+                        jobs.append(p)
+                        p.start()
+                for j in jobs:
+                    j.join()
+                #print(predicted_note.value)            
+                print(np.array(predicted_note))            
+            new_chorale_vector += np.array(predicted_note)
+            #print(new_chorale_vector)
+            print('%f         %d' %(min_distance.value, predicted_chorale_num.value))    
+            new_chorale[0].append(round(prediction.value, 1))
+            new_chorale[1].append(predict_length.value)
+            last_pick = predicted_chorale_num.value
+    else:                    
+        prediction, predict_length = 0, 0
+        new_chorale = [[],[]] #copy.deepcopy(short_chorales[chorale_number])
+        for i in range(short_length):
+            min_distance = 1.
+            for n in note_dict:
+                for l in length_dict:
+                    next_note = np.bitwise_xor(note_dict[n], length_dict[l])
+                    for rot in range(i):   # short_length + i):
+                        next_note = rotate(next_note, D)
+
+                    # Compare against each chorale individually
+                    #for chorale in chorale_vectors:
+                    #    distance = dst.hamming(next_note, chorale)
+                        #distance = dst.hamming(next_note, chorale_vectors[chorale_number])
+                        #distance = dst.hamming(new_chorale_vector+next_note, chorale_vectors[chorale_number])
+
+                    # Threshold new chorale vector
+                    thresh_new_chorale = list(map(lambda x: round(x/ (i+1)), 
+                        new_chorale_vector + next_note))
+                    #distance = dst.hamming(next_note, all_chorales)
+                    #distance = dst.hamming(new_chorale_vector, all_chorales)
+
+                    # Compare against combined chorales
+                    if combined:
+                        distance = dst.hamming(thresh_new_chorale, all_chorales)
+                        if min_distance > distance:
+                            prediction = n
+                            predict_length = l
+                            min_distance = distance
+                            predicted_note = next_note
+
+                    # Compare against single chorale
+                    #distance = dst.hamming(thresh_new_chorale, chorale_vectors[chorale_number])
+                    #print('         %f' %distance)
+                    #if min_distance > distance:
+                    #    prediction = n
+                    #    predict_length = l
+                    #    min_distance = distance
+                    #    predicted_note = next_note
+
+                    # Compare against each chorale individually
+                    else:
+                        chorale_num = 0
+                        for chorale in chorale_vectors:
+                            distance = dst.hamming(thresh_new_chorale, chorale)
+
+                            if min_distance > distance:
+                                prediction = n
+                                predict_length = l
+                                min_distance = distance
+                                predicted_note = next_note
+                                predicted_chorale_num = chorale_num
+                            chorale_num += 1    
+
+            new_chorale_vector += predicted_note
+            print('%f         %d' %(min_distance, predicted_chorale_num))    
+            new_chorale[0].append(prediction)
+            new_chorale[1].append(predict_length)
     print(new_chorale)
-    record(short_chorales[chorale_number], 'short_chorale')
-    record(new_chorale, 'new_chorale')
-    record(new_chorale2, 'new_chorale2')
-    record(new_chorale3, 'new_chorale3')
-    #record(worst_chorale, 'worst_chorale')
+
+    print(np.shape(new_chorale_vector))
+    print(new_chorale_vector)
+
+    #record(short_chorales[chorale_number], 'short_chorale')
+    if combined:
+        record(new_chorale, '../../Music/combined_predict')
+    else:    
+        if midi:
+            encodeMidi(new_chorale, mid_notes_dict, '../../Music/parallel_predict')
+        else:    
+            record(new_chorale, '../../Music/parallel_predict')
+            #np.save('../../Music/chorale_array', new_chorale)
+    #record(chorales[chorale_number], 'original_chorale')
 
 
 def main():
     trials = 20
     incorrect = 0
     short_length = 20
-    chorale_num = 1 
+    chorale_num = 5 
 
+    #print('Play Chorale')
+    #os.system('paplay short_chorale.wav')
     chorales, notes, rest, lengths = init()
     chorales, freq_list, key_sigs = clean(chorales)
     note_dict = dict(zip(freq_list, notes))
     note_dict[0] = rest
+    
+    # Make notes dictionary for midi recording
+    mid_notes = []
+    for i in range(len(freq_list)):
+        mid_notes.append(i+60)
+    mid_notes_dict = dict(zip(freq_list, mid_notes))    
+    mid_notes_dict[0] = 0
 
     intervals = [1, 1, 1, 1, 2, 2, 4, 4]
     intervals[0] =  NOTE_LENGTH
@@ -256,8 +411,10 @@ def main():
     short_chorales = [[notes[:short_length] for notes in chor] for chor in chorales]
     short_chorale_vectors = encode(short_chorales, note_dict, length_dict)
 
-    #record(chorales[1], 'chorale1')
+    #record(chorales[5], 'chorale5')
     #record(short_chorales[0], 'short_chorale')
+    #encodeMidi(chorales[10], mid_notes_dict, '../../Music/chorale10')
+    #sys.exit()        
 
 
     chorale_vectors = encode(chorales, note_dict, length_dict)
@@ -266,7 +423,7 @@ def main():
     #print('Proportion correct: %.4f' %((TESTS * trials - incorrect) / (TESTS * trials))) 
     #print('Random: %.4f' %(1/9))
     pick_next_note(short_chorales, short_chorale_vectors, note_dict, 
-            length_dict, short_length, chorales, chorale_num, chorale_vectors)
+            length_dict, short_length, chorales, chorale_num, chorale_vectors, mid_notes_dict)
 
 if __name__ == '__main__':
     main()
