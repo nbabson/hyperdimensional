@@ -201,7 +201,7 @@ def main():
     for i in range(20):
         print(letters[0][i], end=' ')
     print()
-    #sys.exit()
+    sys.exit()
 
     incorrect, prediction = test_letters(letters, test, model)        
     correct = (1 - (incorrect / 1559)) * 100
