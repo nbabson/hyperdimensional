@@ -10,6 +10,10 @@ import multiprocessing
 import argparse
 import pickle
 import mido
+import random
+from sklearn.decomposition import PCA as sklearnPCA
+import pandas as pd 
+import matplotlib.pyplot as plt
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--multi', dest='multi', action='store_true')
@@ -17,12 +21,16 @@ parser.add_argument('--combined', dest='combined', action='store_true')
 parser.add_argument('--midi', dest='midi', action='store_true')
 parser.add_argument('--single', dest='single', action='store_true')
 parser.add_argument('--d', type=int, default=10000)
-parser.set_defaults(multi=False, combined=False, midi=False, single=False)
+parser.add_argument('--input_set_size', type=int, default=2)
+parser.add_argument('--random_note', dest='random_note', action='store_true')
+parser.set_defaults(multi=False, combined=False, midi=False, single=False, random_note=False)
 args = parser.parse_args()
 multi = args.multi
 combined = args.combined
 midi = args.midi
 single = args.single
+random_note = args.random_note
+input_set_size = args.input_set_size
 
 D = args.d
 NOTES = 20
@@ -208,7 +216,7 @@ def test_key_sigs(key_sig_vectors, chorale_vectors, key_sigs):
 
 
 def parallel_pick_note(rot, n, l, note, length, new_chorale_vector, chorale_vectors, 
-        min_distance, prediction, predict_length, predicted_note, predicted_chorale_num, last_pick, length_dict):
+        min_distance, prediction, predict_length, predicted_note, predicted_chorale_num, last_pick, length_dict, used_chorales):
     #print('%f    %f' %(n, l))
     #print(note[n])
     #next_note = np.bitwise_xor(note[n], length[l])
@@ -226,8 +234,12 @@ def parallel_pick_note(rot, n, l, note, length, new_chorale_vector, chorale_vect
         # Compare against each chorale individually
         chorale_num = 0
         for chorale in chorale_vectors:
+            # Remove most attractive chorale
+            #if chorale_num == 5:
+            #    chorale_num += 1
+            #    continue
             distance = dst.hamming(thresh_new_chorale, chorale)
-
+            # Remove popular chorale 5
             #if min_distance.value > distance:
             #print('Type: ', end='')
             #print(type(min_distance))
@@ -238,7 +250,10 @@ def parallel_pick_note(rot, n, l, note, length, new_chorale_vector, chorale_vect
             #if min_distance > distance:
 
             # don't let successive notes be from same chorale
-            if min_distance.value > distance and last_pick != chorale_num: 
+            #if min_distance.value > distance and last_pick != chorale_num: 
+            if min_distance.value > distance and  chorale_num not in used_chorales: 
+                #used_chorales.add(chorale_num)
+                #print(used_chorales)
                 #print(min_distance.value)
                 #with prediction.get_lock():
                 prediction.value = n
@@ -277,6 +292,7 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
     # Build new_chorale_vector
     new_chorale_vector = [0] * D 
     new_chorale_vector = np.array(new_chorale_vector)
+    used_chorales = set()
 
     if multi:
         # Parallelize for 63 cores
@@ -289,8 +305,24 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
         last_pick = -1
 
         new_chorale = [[],[]] #copy.deepcopy(short_chorales[chorale_number])
-        for i in range(100): # short_length):
+        # Random first note
+        if random_note:
+            first_note = random.choice(list(note_dict.keys()))
+            first_length = random.choice(list(length_dict.keys()))
+            print('First note: %f' %first_note)
+            print('First length: %f' %first_length)
+            new_chorale[0].append(first_note)
+            new_chorale[1].append(first_length)
+            new_chorale_vector += np.array(np.bitwise_xor(note_dict[first_note], length_dict[first_length]))
+            start_composing = 1
+        else:
+            start_composing = 0
+
+        #for i in range(100): # short_length):
+        for i in range(start_composing, 100): # Random first note
             min_distance = multiprocessing.Value('f', 1.)
+            if i % input_set_size == 0:
+                used_chorales = set()
             #for l1 in range(3):
             jobs = []
             for n in note_dict: #range(21):
@@ -303,7 +335,7 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
                             args=(i, n, length, note_dict[n], length_dict[.125], #length],
                                 new_chorale_vector, chorale_vectors,
                                 min_distance, prediction, predict_length, predicted_note, 
-                                predicted_chorale_num, last_pick, length_dict))
+                                predicted_chorale_num, last_pick, length_dict, used_chorales))
                     jobs.append(p)
                     p.start()
             for j in jobs:
@@ -342,6 +374,8 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
             new_chorale_vector += np.array(predicted_note)
             #print(new_chorale_vector)
             print('%f         %d' %(min_distance.value, predicted_chorale_num.value))    
+            used_chorales.add(predicted_chorale_num.value)
+            print(used_chorales)
             new_chorale[0].append(round(prediction.value, 1))
             new_chorale[1].append(predict_length.value)
             last_pick = predicted_chorale_num.value
@@ -423,6 +457,32 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
     #record(chorales[chorale_number], 'original_chorale')
 
 
+
+def plot_chorales(chorales, key_sigs):        
+    pca = sklearnPCA(n_components=2)
+    transformed = pd.DataFrame(pca.fit_transform(chorales))
+    print(np.shape(transformed))
+    print(transformed[0])
+    #letter_list = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
+    #        'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z']
+    #letter_dict = {'a':0, 'b':1, 'c':2, 'd':3, 'e':4, 'f':5, 'g':6, 'h':7, 'i':8,
+    #        'j':9, 'k':10, 'l':11, 'm':12, 'n':13, 'o':14, 'p':15, 'q':16, 'r':17,
+    #        's':18, 't':19, 'u':20, 'v':21, 'w':22, 'x':23, 'y':24, 'z':25}
+    #for letter in letter_list:
+    #    x = transformed[0][letter_dict[letter]]
+    #    y = transformed[1][letter_dict[letter]]
+    #    plt.scatter(x, y, marker='x', color='red')
+    #    plt.text(x+.03, y+.03, letter, fontsize=10)
+    for i in range(100):
+        x = transformed[0][i]
+        y = transformed[1][i]
+        plt.scatter(x, y, marker='x', color='red')
+        plt.text(x+.03, y+.03, key_sigs[i], fontsize=20)
+    plt.show(block=False)    
+    input('Press <ENTER> to continue.')
+    sys.exit()
+
+
 def main():
     trials = 20
     incorrect = 0
@@ -471,8 +531,40 @@ def main():
     #encodeMidi(chorales[10], mid_notes_dict, '../../Music/chorale10')
     #sys.exit()        
 
+    # Record random chorale
+    for i in range(20):
+        new_chorale = [[],[]] 
+        for _ in range(30):
+            new_chorale[0].append(random.choice(list(note_dict.keys())))
+            new_chorale[1].append(random.choice(list(length_dict.keys())))
+        print(new_chorale)
+        encodeMidi(new_chorale, mid_notes_dict, '../Datasets/RandomChorales/random' + str(i))
+    sys.exit()    
+
+    '''
+    # Record boring single repeated note chorales
+    new_chorale = [[],[]] 
+    random_note = random.choice(list(note_dict.keys()))
+    for _ in range(35):
+        new_chorale[0].append(random_note)
+        new_chorale[1].append(random.choice(list(length_dict.keys())))
+    print(new_chorale)
+    #encodeMidi(new_chorale, mid_notes_dict, '../../Music/boring1')
+    boring1 = encode(new_chorale, note_dict, length_dict, song_end)
+    new_chorale = [[],[]] 
+    random_note = random.choice(list(note_dict.keys()))
+    random_length = random.choice(list(length_dict.keys()))
+    for _ in range(35):
+        new_chorale[0].append(random_note)
+        new_chorale[1].append(random_length)
+    print(new_chorale)
+    #encodeMidi(new_chorale, mid_notes_dict, '../../Music/boring2')
+    boring2 = encode(new_chorale, note_dict, length_dict, song_end)
+    print(boring2)
+    '''
 
     chorale_vectors = encode(chorales, note_dict, length_dict, song_end)
+    plot_chorales(chorale_vectors, key_sigs)
     #key_sig_vectors = make_key_sig_vectors(chorale_vectors, key_sigs)
     #incorrect += test_key_sigs(key_sig_vectors, chorale_vectors, key_sigs)
     #print('Proportion correct: %.4f' %((TESTS * trials - incorrect) / (TESTS * trials))) 
