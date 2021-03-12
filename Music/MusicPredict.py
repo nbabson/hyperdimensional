@@ -23,7 +23,8 @@ parser.add_argument('--single', dest='single', action='store_true')
 parser.add_argument('--d', type=int, default=10000)
 parser.add_argument('--input_set_size', type=int, default=2)
 parser.add_argument('--random_note', dest='random_note', action='store_true')
-parser.set_defaults(multi=False, combined=False, midi=False, single=False, random_note=False)
+parser.add_argument('--plot', dest='plot', action='store_true')
+parser.set_defaults(multi=False, combined=False, midi=False, single=False, random_note=False, plot=False)
 args = parser.parse_args()
 multi = args.multi
 combined = args.combined
@@ -31,6 +32,7 @@ midi = args.midi
 single = args.single
 random_note = args.random_note
 input_set_size = args.input_set_size
+plot = args.plot
 
 D = args.d
 NOTES = 20
@@ -273,7 +275,7 @@ def parallel_pick_note(rot, n, l, note, length, new_chorale_vector, chorale_vect
             chorale_num += 1    
 
 def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict,
-        short_length, chorales, chorale_number, chorale_vectors, mid_notes_dict, song_end):
+        short_length, chorales, chorale_number, chorale_vectors, mid_notes_dict, song_end, composition_num):
     #note_duration = .5
 
     lengths_list = [.125, .25, .375, .5, .75, 1., 1.5, 2, 10]
@@ -450,7 +452,8 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
         record(new_chorale, '../../Music/combined_predict')
     else:    
         if midi:
-            encodeMidi(new_chorale, mid_notes_dict, '../../Music/parallel_predict')
+            #encodeMidi(new_chorale, mid_notes_dict, '../../Music/parallel_predict')
+            encodeMidi(new_chorale, mid_notes_dict, '../Datasets/ComposedChorales/comp' + str(composition_num))
         else:    
             record(new_chorale, '../../Music/parallel_predict')
             #np.save('../../Music/chorale_array', new_chorale)
@@ -458,11 +461,11 @@ def pick_next_note(short_chorales, short_chorale_vectors, note_dict, length_dict
 
 
 
-def plot_chorales(chorales, key_sigs):        
+def plot_chorales(chorales, key_sigs, boring, random_chorales):        
     pca = sklearnPCA(n_components=2)
     transformed = pd.DataFrame(pca.fit_transform(chorales))
-    print(np.shape(transformed))
-    print(transformed[0])
+    #print(np.shape(transformed))
+    #print(transformed[0])
     #letter_list = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j', 'k', 'l', 'm',
     #        'n', 'o', 'p', 'q', 'r', 's', 't', 'u', 'v', 'w', 'x', 'y', 'z']
     #letter_dict = {'a':0, 'b':1, 'c':2, 'd':3, 'e':4, 'f':5, 'g':6, 'h':7, 'i':8,
@@ -473,11 +476,28 @@ def plot_chorales(chorales, key_sigs):
     #    y = transformed[1][letter_dict[letter]]
     #    plt.scatter(x, y, marker='x', color='red')
     #    plt.text(x+.03, y+.03, letter, fontsize=10)
-    for i in range(100):
+    for i in range(20): #100):
         x = transformed[0][i]
         y = transformed[1][i]
         plt.scatter(x, y, marker='x', color='red')
-        plt.text(x+.03, y+.03, key_sigs[i], fontsize=20)
+        plt.text(x+.03, y+.03, i, fontsize=20) #key_sigs[i], fontsize=20)
+
+    # Add boring chorales    
+    transformed = pd.DataFrame(pca.fit_transform(boring))
+    for i in range(20):
+        x = transformed[0][i]
+        y = transformed[1][i]
+        plt.scatter(x, y, marker='x', color='blue')
+        plt.text(x+.03, y+.03, 'B', fontsize=20)
+
+    # Add random chorales    
+    transformed = pd.DataFrame(pca.fit_transform(random_chorales))
+    for i in range(20):
+        x = transformed[0][i]
+        y = transformed[1][i]
+        plt.scatter(x, y, marker='x', color='green')
+        plt.text(x+.03, y+.03, 'R', fontsize=20)
+
     plt.show(block=False)    
     input('Press <ENTER> to continue.')
     sys.exit()
@@ -489,88 +509,93 @@ def main():
     short_length = 20
     chorale_num = 5 
 
-    #print('Play Chorale')
-    #os.system('paplay short_chorale.wav')
-    chorales, notes, rest, lengths = init()
-    chorales, freq_list, key_sigs = clean(chorales)
-    note_dict = dict(zip(freq_list, notes))
-    note_dict[0] = rest
+    for comp_num in range(20):
+        #print('Play Chorale')
+        #os.system('paplay short_chorale.wav')
+        chorales, notes, rest, lengths = init()
+        chorales, freq_list, key_sigs = clean(chorales)
+        note_dict = dict(zip(freq_list, notes))
+        note_dict[0] = rest
 
-    # Make notes dictionary for midi recording
-    mid_notes = []
-    for i in range(len(freq_list)):
-        mid_notes.append(i+60)
-    mid_notes_dict = dict(zip(freq_list, mid_notes))    
-    mid_notes_dict[0] = 0
+        # Make notes dictionary for midi recording
+        mid_notes = []
+        for i in range(len(freq_list)):
+            mid_notes.append(i+60)
+        mid_notes_dict = dict(zip(freq_list, mid_notes))    
+        mid_notes_dict[0] = 0
 
-    '''
-    # Record midi files of chorales dataset
-    chor_num = 0
-    for chorale in chorales:
-        encodeMidi(chorale, mid_notes_dict, '../Datasets/ChoralesMidi/chorale' + str(chor_num))
-        chor_num += 1
-    sys.exit()    
-    '''
-    
-    intervals = [1, 1, 1, 1, 2, 2, 4, 4]
-    intervals[0] =  NOTE_LENGTH
-    for i in range(1, len(intervals)):
-        intervals[i] = intervals[i-1] + intervals[i] * NOTE_LENGTH
-    #lengths_list = [.125, .25, .375, .5, .75, 1., 1.5, 2]  #, 10]
-    length_dict = dict(zip(intervals, lengths))
-    # Add orthogonal duration vector for note with duration of 80 16th notes
-    length_dict[80 * NOTE_LENGTH] = np.random.randint(2, size=D)
-    song_end = np.random.randint(2, size=D)
+        '''
+        # Record midi files of chorales dataset
+        chor_num = 0
+        for chorale in chorales:
+            encodeMidi(chorale, mid_notes_dict, '../Datasets/ChoralesMidi/chorale' + str(chor_num))
+            chor_num += 1
+        sys.exit()    
+        '''
+        
+        intervals = [1, 1, 1, 1, 2, 2, 4, 4]
+        intervals[0] =  NOTE_LENGTH
+        for i in range(1, len(intervals)):
+            intervals[i] = intervals[i-1] + intervals[i] * NOTE_LENGTH
+        #lengths_list = [.125, .25, .375, .5, .75, 1., 1.5, 2]  #, 10]
+        length_dict = dict(zip(intervals, lengths))
+        # Add orthogonal duration vector for note with duration of 80 16th notes
+        length_dict[80 * NOTE_LENGTH] = np.random.randint(2, size=D)
+        song_end = np.random.randint(2, size=D)
 
-    # Make hypervectors of first 'short_length' notes of each chorale
-    short_chorales = [[notes[:short_length] for notes in chor] for chor in chorales]
-    short_chorale_vectors = encode(short_chorales, note_dict, length_dict, song_end)
+        # Make hypervectors of first 'short_length' notes of each chorale
+        short_chorales = [[notes[:short_length] for notes in chor] for chor in chorales]
+        short_chorale_vectors = encode(short_chorales, note_dict, length_dict, song_end)
 
-    #record(chorales[5], 'chorale5')
-    #record(short_chorales[0], 'short_chorale')
-    #encodeMidi(chorales[10], mid_notes_dict, '../../Music/chorale10')
-    #sys.exit()        
+        #record(chorales[5], 'chorale5')
+        #record(short_chorales[0], 'short_chorale')
+        #encodeMidi(chorales[10], mid_notes_dict, '../../Music/chorale10')
+        #sys.exit()        
 
-    # Record random chorale
-    for i in range(20):
-        new_chorale = [[],[]] 
-        for _ in range(30):
-            new_chorale[0].append(random.choice(list(note_dict.keys())))
-            new_chorale[1].append(random.choice(list(length_dict.keys())))
-        print(new_chorale)
-        encodeMidi(new_chorale, mid_notes_dict, '../Datasets/RandomChorales/random' + str(i))
-    sys.exit()    
+        if plot:
+            # Record random chorale
+            random_chorales = []
+            for i in range(20):
+                new_chorale = [[],[]] 
+                for _ in range(30):
+                    new_chorale[0].append(random.choice(list(note_dict.keys())))
+                    new_chorale[1].append(random.choice(list(length_dict.keys())))
+                #print(new_chorale)
+                #encodeMidi(new_chorale, mid_notes_dict, '../Datasets/RandomChorales/random' + str(i))
+                random_chorales.append(new_chorale)
+            random_chorales = encode(random_chorales, note_dict, length_dict, song_end)
 
-    '''
-    # Record boring single repeated note chorales
-    new_chorale = [[],[]] 
-    random_note = random.choice(list(note_dict.keys()))
-    for _ in range(35):
-        new_chorale[0].append(random_note)
-        new_chorale[1].append(random.choice(list(length_dict.keys())))
-    print(new_chorale)
-    #encodeMidi(new_chorale, mid_notes_dict, '../../Music/boring1')
-    boring1 = encode(new_chorale, note_dict, length_dict, song_end)
-    new_chorale = [[],[]] 
-    random_note = random.choice(list(note_dict.keys()))
-    random_length = random.choice(list(length_dict.keys()))
-    for _ in range(35):
-        new_chorale[0].append(random_note)
-        new_chorale[1].append(random_length)
-    print(new_chorale)
-    #encodeMidi(new_chorale, mid_notes_dict, '../../Music/boring2')
-    boring2 = encode(new_chorale, note_dict, length_dict, song_end)
-    print(boring2)
-    '''
+            # Record boring single repeated note chorales
+            boring = []
+            for _ in range(20):
+                new_chorale = [[],[]] 
+                random_note = random.choice(list(note_dict.keys()))
+                for _ in range(35):
+                    new_chorale[0].append(random_note)
+                    new_chorale[1].append(random.choice(list(length_dict.keys())))
+                #encodeMidi(new_chorale, mid_notes_dict, '../../Music/boring1')
+                boring.append(new_chorale)
+            #new_chorale = [[],[]] 
+            #random_note = random.choice(list(note_dict.keys()))
+            #random_length = random.choice(list(length_dict.keys()))
+            #for _ in range(35):
+            #    new_chorale[0].append(random_note)
+            #    new_chorale[1].append(random_length)
+            #encodeMidi(new_chorale, mid_notes_dict, '../../Music/boring2')
+            #boring.append(new_chorale)
+            boring = encode(boring, note_dict, length_dict, song_end)
 
-    chorale_vectors = encode(chorales, note_dict, length_dict, song_end)
-    plot_chorales(chorale_vectors, key_sigs)
-    #key_sig_vectors = make_key_sig_vectors(chorale_vectors, key_sigs)
-    #incorrect += test_key_sigs(key_sig_vectors, chorale_vectors, key_sigs)
-    #print('Proportion correct: %.4f' %((TESTS * trials - incorrect) / (TESTS * trials))) 
-    #print('Random: %.4f' %(1/9))
-    pick_next_note(short_chorales, short_chorale_vectors, note_dict, 
-            length_dict, short_length, chorales, chorale_num, chorale_vectors, mid_notes_dict, song_end)
+        chorale_vectors = encode(chorales, note_dict, length_dict, song_end)
+
+        if plot:
+            plot_chorales(chorale_vectors, key_sigs, boring, random_chorales)
+
+        #key_sig_vectors = make_key_sig_vectors(chorale_vectors, key_sigs)
+        #incorrect += test_key_sigs(key_sig_vectors, chorale_vectors, key_sigs)
+        #print('Proportion correct: %.4f' %((TESTS * trials - incorrect) / (TESTS * trials))) 
+        #print('Random: %.4f' %(1/9))
+        pick_next_note(short_chorales, short_chorale_vectors, note_dict, 
+                length_dict, short_length, chorales, chorale_num, chorale_vectors, mid_notes_dict, song_end, comp_num)
 
 if __name__ == '__main__':
     main()
