@@ -564,13 +564,14 @@ def main():
         #sys.exit()        
 
         # Generate random and boring (repeated single note) chorales for comparison 
-        for i in range(100):
+        print('Generate random chorales')
+        for i in range(100, 200):
             new_chorale = [[],[]] 
             for _ in range(33):
                 new_chorale[0].append(random.choice(list(note_dict.keys())))
                 new_chorale[1].append(random.choice(list(length_dict.keys())))
             #print(new_chorale)
-            encodeMidi(new_chorale, mid_notes_dict, '../Datasets/RandomChoralesTest/random' + str(i))
+            encodeMidi(new_chorale, mid_notes_dict, '../Datasets/RandomChorales/random' + str(i))
         '''    
         for i in range(100):
             new_chorale = [[],[]] 
